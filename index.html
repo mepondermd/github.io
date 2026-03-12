@@ -1,0 +1,2056 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ashes of New York - Expanded RPG</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <style>
+      :root {
+        --panel: #1a202c;
+        --panel-alt: #222b3b;
+        --text: #dbe7ff;
+        --accent: #83e0a3;
+        --danger: #ff7c7c;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Inter, system-ui, sans-serif;
+        color: var(--text);
+        background: linear-gradient(180deg, #0a0c11, #111827);
+      }
+      body.time-day { filter: saturate(1); }
+      body.time-dusk { filter: sepia(0.08) saturate(1.05); }
+      body.time-night { filter: brightness(0.85) saturate(0.9); }
+      body.weather-rain::before,
+      body.weather-fog::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 100;
+      }
+      body.weather-rain::before {
+        background: repeating-linear-gradient(105deg, rgba(140,170,255,.08), rgba(140,170,255,.08) 2px, transparent 2px, transparent 8px);
+      }
+      body.weather-fog::before {
+        background: radial-gradient(circle at 30% 20%, rgba(190,205,225,.16), transparent 45%), radial-gradient(circle at 75% 50%, rgba(190,205,225,.12), transparent 40%);
+      }
+      header, footer {
+        text-align: center;
+        padding: 0.55rem;
+        border-top: 1px solid #2d3748;
+        border-bottom: 1px solid #2d3748;
+        background: rgba(10, 16, 26, 0.9);
+      }
+      main {
+        display: grid;
+        grid-template-columns: 360px 1fr 320px;
+        gap: 0.75rem;
+        padding: 0.75rem;
+        height: calc(100vh - 150px);
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid #2a3347;
+        border-radius: 8px;
+        padding: 0.75rem;
+        overflow: auto;
+      }
+      #map { height: 100%; width: 100%; border-radius: 8px; border: 1px solid #2a3347; }
+      .map-wrap { position: relative; }
+      .overlay-help {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        z-index: 500;
+        background: rgba(10, 13, 18, 0.86);
+        border: 1px solid #354056;
+        padding: 0.5rem;
+        border-radius: 6px;
+        font-size: 0.82rem;
+      }
+      .overlay-help p { margin: .25rem 0; }
+      #log {
+        height: 33vh;
+        overflow-y: auto;
+        border: 1px solid #2a3347;
+        background: var(--panel-alt);
+        padding: 0.5rem;
+        border-radius: 6px;
+      }
+      .log-entry { margin-bottom: 0.35rem; border-bottom: 1px solid #2d3748; padding-bottom: 0.25rem; }
+      .button-row { display: flex; gap: 0.4rem; margin-top: 0.5rem; flex-wrap: wrap; }
+      button {
+        background: #2f3c56;
+        border: 1px solid #4a5a7c;
+        color: var(--text);
+        border-radius: 6px;
+        padding: 0.35rem 0.5rem;
+        cursor: pointer;
+      }
+      button:hover { filter: brightness(1.12); }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      ul { margin: 0; padding-left: 1.1rem; }
+      .status-pill {
+        display: inline-block;
+        padding: 2px 6px;
+        margin-right: 4px;
+        border-radius: 999px;
+        font-size: 0.72rem;
+        border: 1px solid #4a5a7c;
+      }
+      .pill-burn { background: rgba(255, 80, 80, .18); }
+      .pill-bleed { background: rgba(255, 130, 130, .14); }
+      .pill-shock { background: rgba(130, 170, 255, .16); }
+      .pill-ward { background: rgba(120, 230, 170, .15); }
+      .pill-regen { background: rgba(110, 220, 120, .2); }
+      .quest-done { color: var(--accent); }
+      .quest-panel, .faction-panel, .world-panel {
+        border: 1px solid #2a3347;
+        border-radius: 6px;
+        padding: 0.45rem;
+        margin-top: 0.55rem;
+        background: #1f2736;
+      }
+      .modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.72);
+        display: grid;
+        place-items: center;
+        z-index: 1200;
+      }
+      .modal.hidden { display: none; }
+      .modal-content {
+        width: min(720px, 92vw);
+        max-height: 84vh;
+        overflow: auto;
+        background: var(--panel);
+        border: 1px solid #3b4a66;
+        border-radius: 8px;
+        padding: 1rem;
+      }
+      .mobile-controls {
+        display: none;
+        position: fixed;
+        bottom: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 1400;
+        gap: 0.5rem;
+        align-items: end;
+        background: rgba(8, 12, 20, 0.82);
+        border: 1px solid #334155;
+        border-radius: 10px;
+        padding: 0.5rem;
+      }
+      .dpad { display: grid; grid-template-columns: repeat(3, 46px); grid-template-rows: repeat(3, 46px); gap: 4px; }
+      .mobile-actions { display: grid; gap: 4px; }
+      .mobile-actions button, .dpad button { min-height: 42px; }
+      .player-pin, .objective-pin {
+        width: 16px;
+        height: 16px;
+        border-radius: 50% 50% 50% 0;
+        transform: rotate(-45deg);
+        border: 2px solid #ffffff;
+        box-shadow: 0 0 0 2px rgba(7, 10, 16, 0.35);
+      }
+      .player-pin { background: #ff4d6d; }
+      .objective-pin { background: #f59e0b; }
+
+      @media (max-width: 1100px) {
+        main { grid-template-columns: 1fr; height: auto; padding-bottom: 130px; }
+        #map { height: 50vh; }
+      }
+      @media (max-width: 900px), (pointer: coarse) { .mobile-controls { display: flex; } }
+    </style>
+  </head>
+  <body class="time-day">
+    <header>
+      <h1>Ashes of New York</h1>
+      <p>Expanded single-file RPG (quests, factions, weather, dungeon runs)</p>
+      <p id="build-id"></p>
+    </header>
+
+    <main>
+      <section class="panel">
+        <h2>Player</h2>
+        <div id="player-stats"></div>
+
+        <div class="world-panel">
+          <h3>World State</h3>
+          <p id="zone-display"></p>
+          <p id="time-weather"></p>
+          <p id="map-source"></p>
+        </div>
+
+        <h3>Statuses</h3>
+        <div id="player-statuses"></div>
+
+        <h3>Equipment</h3>
+        <div id="equipment"></div>
+
+        <h3>Inventory</h3>
+        <ul id="inventory"></ul>
+
+        <h3>Scavenging</h3>
+        <p id="nearest-building"></p>
+        <div class="button-row">
+          <button id="scavenge-btn">Scavenge Building</button>
+        </div>
+
+        <h3>Skill Trees</h3>
+        <p id="skill-points"></p>
+        <div class="button-row">
+          <button id="skill-combat-tab">Combat</button>
+          <button id="skill-arcane-tab">Arcane</button>
+        </div>
+        <ul id="skill-list"></ul>
+
+        <div class="button-row">
+          <button id="save-btn">Save</button>
+          <button id="load-btn">Load</button>
+          <button id="rest-btn">Camp Rest (+20 HP)</button>
+        </div>
+      </section>
+
+      <section class="map-wrap">
+        <div id="map"></div>
+        <div class="overlay-help">
+          <p><strong>Move:</strong> Arrow keys/WASD or touch D-pad</p>
+          <p><strong>Interact:</strong> E merchant | F scavenge | G quest giver | R reclaim landmark</p>
+          <p><strong>World:</strong> Weather/time modify combat/scavenge.</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="world-panel">
+          <h2>Borough Campaign</h2>
+          <p id="main-objective"></p>
+          <ul id="borough-progress"></ul>
+          <h3>Nearby Landmarks</h3>
+          <ul id="poi-list"></ul>
+          <div class="button-row">
+            <button id="quest-giver-btn">Talk to Quest Giver</button>
+            <button id="reclaim-poi-btn">Reclaim Landmark</button>
+          </div>
+        </div>
+
+        <div class="quest-panel">
+          <h2>Contract Board</h2>
+          <ul id="quest-list"></ul>
+          <button id="reroll-quests-btn">Reroll Contracts (50g)</button>
+        </div>
+
+        <div class="faction-panel">
+          <h2>Faction Reputation</h2>
+          <ul id="faction-list"></ul>
+        </div>
+
+        <h2>Log</h2>
+        <div id="log"></div>
+      </section>
+    </main>
+
+    <div class="mobile-controls">
+      <div class="dpad">
+        <span></span><button id="touch-up">▲</button><span></span>
+        <button id="touch-left">◀</button><span></span><button id="touch-right">▶</button>
+        <span></span><button id="touch-down">▼</button><span></span>
+      </div>
+      <div class="mobile-actions">
+        <button id="touch-scavenge">Scavenge</button>
+        <button id="touch-merchant">Merchant</button>
+        <button id="touch-quest">Quest</button>
+      </div>
+    </div>
+
+    <div id="combat-modal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-content">
+        <h2>Battle</h2>
+        <div id="combat-status"></div>
+        <div id="enemy-statuses"></div>
+        <div class="button-row">
+          <button id="attack-btn">Attack</button>
+          <button id="magic-btn">Cast Magic</button>
+          <button id="item-btn">Use Potion</button>
+          <button id="guard-btn">Guard</button>
+          <button id="run-btn">Escape</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="merchant-modal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-content">
+        <h2>Merchant Camp</h2>
+        <p id="merchant-pricing"></p>
+        <h3>Buy</h3>
+        <ul id="merchant-buy-list"></ul>
+        <h3>Sell</h3>
+        <ul id="merchant-sell-list"></ul>
+        <button id="merchant-close-btn">Leave Merchant</button>
+      </div>
+    </div>
+
+    <div id="dungeon-modal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-content">
+        <h2>Building Expedition</h2>
+        <p id="dungeon-text"></p>
+        <div id="dungeon-controls" class="button-row"></div>
+      </div>
+    </div>
+
+    <footer>Crime-weighted zones + dynamic world systems layered on open map data. <span id="footer-version"></span></footer>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script>
+      const NYC_CENTER = [40.7128, -74.006];
+      const GAME_VERSION = "v4.0.0-borough-poi-loot";
+      const SAVE_KEY = "ashes_of_ny_singlefile_v5";
+      const MOVE_STEP = 0.003;
+      const WEATHER_TYPES = ["clear", "rain", "fog"];
+      const TIMES = ["day", "dusk", "night"];
+
+      const EQUIPMENT_SLOTS = ["weapon", "helmet", "chest", "arms", "legs", "boots", "gloves", "ring1", "ring2", "amulet"];
+      const RARITY_ORDER = ["common", "uncommon", "epic", "legendary", "mythical", "unique"];
+      const RARITY_COLORS = {
+        common: "#d3d9e0",
+        uncommon: "#86f7a2",
+        epic: "#bf8cff",
+        legendary: "#ffb35d",
+        mythical: "#ff5ecb",
+        unique: "#77f3ff",
+      };
+
+      const ITEMS = {
+        potion: { name: "Potion", type: "consumable", heal: 30, value: 20, rarity: "common" },
+        ether: { name: "Ether", type: "consumable", mana: 20, value: 24, rarity: "common" },
+        ironPipe: { name: "Iron Pipe", type: "equipment", slot: "weapon", atk: 4, value: 35, rarity: "common" },
+        trafficHelm: { name: "Traffic Helm", type: "equipment", slot: "helmet", def: 2, value: 32, rarity: "common" },
+        leatherCoat: { name: "Leather Coat", type: "equipment", slot: "chest", def: 3, value: 35, rarity: "common" },
+        scrapBracers: { name: "Scrap Bracers", type: "equipment", slot: "arms", def: 2, atk: 1, value: 30, rarity: "common" },
+        reinforcedJeans: { name: "Reinforced Jeans", type: "equipment", slot: "legs", def: 2, value: 28, rarity: "common" },
+        commuterBoots: { name: "Commuter Boots", type: "equipment", slot: "boots", def: 1, atk: 1, value: 25, rarity: "common" },
+        scavengerGloves: { name: "Scavenger Gloves", type: "equipment", slot: "gloves", atk: 2, value: 28, rarity: "common" },
+        charmRing: { name: "Charm Ring", type: "equipment", slot: "ring1", mag: 2, value: 50, rarity: "uncommon" },
+        watchbandRing: { name: "Watchband Ring", type: "equipment", slot: "ring2", def: 2, value: 55, rarity: "uncommon" },
+        emberSigil: { name: "Ember Sigil", type: "equipment", slot: "amulet", mag: 4, value: 95, rarity: "epic" },
+        relicBlade: { name: "Relic Blade", type: "equipment", slot: "weapon", atk: 9, value: 90, rarity: "epic" },
+        guardianVisor: { name: "Guardian Visor", type: "equipment", slot: "helmet", def: 4, mag: 2, value: 100, rarity: "epic" },
+        mysticCloak: { name: "Mystic Cloak", type: "equipment", slot: "chest", def: 6, mag: 2, value: 120, rarity: "epic" },
+        titanVambraces: { name: "Titan Vambraces", type: "equipment", slot: "arms", atk: 3, def: 4, value: 140, rarity: "legendary" },
+        stormGreaves: { name: "Storm Greaves", type: "equipment", slot: "legs", def: 5, mag: 3, value: 155, rarity: "legendary" },
+        subwayStriders: { name: "Subway Striders", type: "equipment", slot: "boots", atk: 3, def: 3, value: 150, rarity: "legendary" },
+        voidGauntlets: { name: "Void Gauntlets", type: "equipment", slot: "gloves", atk: 5, mag: 3, value: 190, rarity: "mythical" },
+        doubleSunRings: { name: "Double Sun Rings", type: "equipment", slot: "ring1", mag: 5, def: 2, value: 210, rarity: "mythical" },
+        lunarBand: { name: "Lunar Band", type: "equipment", slot: "ring2", atk: 4, mag: 3, value: 210, rarity: "mythical" },
+        boroughHeart: { name: "Borough Heart", type: "equipment", slot: "amulet", hp: 35, atk: 5, mag: 5, value: 260, rarity: "mythical" },
+        malachaiCrown: { name: "Crown of Malachai", type: "equipment", slot: "helmet", hp: 70, atk: 8, mag: 8, def: 8, value: 999, rarity: "unique", unique: true },
+      };
+      const MERCHANT_STOCK = ["potion", "ether", "ironPipe", "trafficHelm", "leatherCoat", "scavengerGloves", "charmRing"];
+
+      const ENEMY_ARCHETYPES = [
+        { name: "Feral Scavenger", hp: 36, atk: 8, mag: 2, tags: ["raider"], resist: { physical: 1, fire: 1, lightning: 1 }, weak: "none" },
+        { name: "Radioactive Hound", hp: 30, atk: 10, mag: 0, tags: ["mutant"], resist: { physical: 1.05, fire: 1, lightning: 0.9 }, weak: "lightning" },
+        { name: "Arcane Cultist", hp: 40, atk: 6, mag: 10, tags: ["cult"], resist: { physical: 1, fire: 0.85, lightning: 1.1 }, weak: "physical" },
+        { name: "Tunnel Brute", hp: 48, atk: 11, mag: 0, tags: ["raider"], resist: { physical: 0.9, fire: 1.1, lightning: 1 }, weak: "fire" },
+      ];
+      const COMBAT_SKILLS = [
+        { id: "ironWill", name: "Iron Will", cost: 1, effect: "+25 Max HP", apply: (p) => (p.maxHp += 25) },
+        { id: "bladeMastery", name: "Blade Mastery", cost: 1, effect: "Physical applies Bleed chance", apply: (p) => (p.atk += 2) },
+        { id: "riposte", name: "Riposte", cost: 2, effect: "15% counterattack" },
+        { id: "guardian", name: "Guardian", cost: 2, effect: "Guard grants Ward status" },
+      ];
+      const MAGIC_SKILLS = [
+        { id: "manaFlow", name: "Mana Flow", cost: 1, effect: "+20 Max MP", apply: (p) => (p.maxMp += 20) },
+        { id: "pyroBurst", name: "Pyro Burst", cost: 1, effect: "Fire spell with Burn" },
+        { id: "stormCall", name: "Storm Call", cost: 2, effect: "Lightning spell with Shock" },
+        { id: "aegis", name: "Aegis", cost: 1, effect: "Passive Regen after battles" },
+      ];
+      const CRIME_ZONES = [
+        { name: "Midtown", center: [40.758, -73.9855], crimeIndex: 1.45 },
+        { name: "South Bronx", center: [40.816, -73.915], crimeIndex: 1.55 },
+        { name: "Harlem", center: [40.8116, -73.9465], crimeIndex: 1.3 },
+        { name: "Lower Manhattan", center: [40.7075, -74.0113], crimeIndex: 1.1 },
+        { name: "Downtown Brooklyn", center: [40.6928, -73.99], crimeIndex: 1.15 },
+        { name: "Queens Village", center: [40.7262, -73.7411], crimeIndex: 0.8 },
+        { name: "Staten Island North Shore", center: [40.642, -74.075], crimeIndex: 0.75 },
+      ];
+      const BUILDINGS = [
+        { id: "times-square-subway", name: "Abandoned Times Square Station", pos: [40.7588, -73.9851], baseCooldown: 6 },
+        { id: "wall-st-vault", name: "Collapsed Wall Street Vault", pos: [40.7078, -74.0109], baseCooldown: 8 },
+        { id: "bronx-labs", name: "Ruined Bronx Bio Lab", pos: [40.815, -73.917], baseCooldown: 7 },
+        { id: "brooklyn-yard", name: "Sunken Brooklyn Rail Yard", pos: [40.6939, -73.9917], baseCooldown: 5 },
+        { id: "harlem-theater", name: "Shattered Harlem Theater", pos: [40.8118, -73.9478], baseCooldown: 6 },
+      ];
+
+      const BOROUGH_ORDER = ["manhattan", "bronx", "brooklyn", "queens", "staten"];
+      const BOROUGH_LABELS = {
+        manhattan: "Manhattan",
+        bronx: "Bronx",
+        brooklyn: "Brooklyn",
+        queens: "Queens",
+        staten: "Staten Island",
+      };
+
+      const BOROUGH_BOSSES = {
+        manhattan: { poiId: "poi-pcv", name: "Warden Nyx", hp: 210, atk: 18, mag: 16, exp: 220, gold: 220, weak: "physical", resist: { physical: 1.1, fire: 1, lightning: 1 } },
+        bronx: { poiId: "poi-yankee", name: "Bronx Iron Tyrant", hp: 195, atk: 20, mag: 10, exp: 210, gold: 210, weak: "fire", resist: { physical: 1.05, fire: 0.9, lightning: 1 } },
+        brooklyn: { poiId: "poi-navyyard", name: "Admiral Ashfall", hp: 200, atk: 17, mag: 15, exp: 215, gold: 215, weak: "lightning", resist: { physical: 1, fire: 1.05, lightning: 0.88 } },
+        queens: { poiId: "poi-jfk", name: "Skybreaker Voss", hp: 190, atk: 16, mag: 18, exp: 215, gold: 220, weak: "physical", resist: { physical: 1.08, fire: 1, lightning: 1 } },
+        staten: { poiId: "poi-ferry", name: "Harbormaw Rex", hp: 205, atk: 19, mag: 13, exp: 220, gold: 225, weak: "fire", resist: { physical: 1.05, fire: 0.9, lightning: 1.02 } },
+      };
+
+      const WATER_ZONES = [
+        { minLat: 40.695, maxLat: 40.885, minLng: -74.020, maxLng: -74.000 }, // Hudson around Manhattan west
+        { minLat: 40.695, maxLat: 40.880, minLng: -73.978, maxLng: -73.915 }, // East River
+        { minLat: 40.785, maxLat: 40.885, minLng: -73.970, maxLng: -73.905 }, // Harlem River
+      ];
+      const BRIDGE_CROSSINGS = [
+        { minLat: 40.700, maxLat: 40.708, minLng: -74.016, maxLng: -73.996 }, // Battery Tunnel / lower crossing
+        { minLat: 40.708, maxLat: 40.716, minLng: -74.012, maxLng: -73.988 }, // Brooklyn Bridge corridor
+        { minLat: 40.724, maxLat: 40.733, minLng: -74.012, maxLng: -73.985 }, // Manhattan Bridge / Williamsburg approach
+        { minLat: 40.748, maxLat: 40.759, minLng: -74.010, maxLng: -73.980 }, // Queensboro corridor
+        { minLat: 40.805, maxLat: 40.821, minLng: -73.975, maxLng: -73.930 }, // Harlem River crossings
+        { minLat: 40.596, maxLat: 40.616, minLng: -74.060, maxLng: -74.015 }, // Verrazzano Narrows Bridge
+      ];
+
+      const QUEST_GIVERS = [
+        { id: "giver-manhattan", borough: "manhattan", name: "Captain Vega", pos: [40.7585, -73.9852] },
+        { id: "giver-bronx", borough: "bronx", name: "Doc Morales", pos: [40.817, -73.917] },
+        { id: "giver-brooklyn", borough: "brooklyn", name: "Sable Knox", pos: [40.6935, -73.9895] },
+        { id: "giver-queens", borough: "queens", name: "Ivy Ren", pos: [40.727, -73.7405] },
+        { id: "giver-staten", borough: "staten", name: "Chief Rowan", pos: [40.6425, -74.076] },
+      ];
+
+      const POINTS_OF_INTEREST = [
+        { id: "poi-central-park", borough: "manhattan", name: "Central Park Bastion", pos: [40.7812, -73.9665], tags: ["park"] },
+        { id: "poi-times-square", borough: "manhattan", name: "Times Square Beacon", pos: [40.758, -73.9855], tags: ["district"] },
+        { id: "poi-bryant", borough: "manhattan", name: "Bryant Park Archive", pos: [40.7536, -73.9832], tags: ["park"] },
+        { id: "poi-union", borough: "manhattan", name: "Union Square Relay", pos: [40.7359, -73.9911], tags: ["square"] },
+        { id: "poi-highline", borough: "manhattan", name: "High Line Lookout", pos: [40.748, -74.0048], tags: ["park"] },
+        { id: "poi-battery", borough: "manhattan", name: "Battery Redoubt", pos: [40.7033, -74.017], tags: ["shore"] },
+        { id: "poi-columbia", borough: "manhattan", name: "Columbia Athenaeum", pos: [40.8075, -73.9626], tags: ["campus"] },
+        { id: "poi-grandcentral", borough: "manhattan", name: "Grand Central Citadel", pos: [40.7527, -73.9772], tags: ["transit"] },
+        { id: "poi-chelsea", borough: "manhattan", name: "Chelsea Market Vault", pos: [40.7423, -74.006], tags: ["market"] },
+        { id: "poi-pcv", borough: "manhattan", name: "Peter Cooper Village Keep", pos: [40.7341, -73.978], tags: ["boss"] },
+
+        { id: "poi-yankee", borough: "bronx", name: "Yankee Stadium Keep", pos: [40.8296, -73.9262], tags: ["stadium"] },
+        { id: "poi-zoo", borough: "bronx", name: "Bronx Zoo Recovery Zone", pos: [40.8506, -73.8769], tags: ["zoo"] },
+        { id: "poi-botanical", borough: "bronx", name: "Botanical Garden Conservatory", pos: [40.8623, -73.8801], tags: ["garden"] },
+        { id: "poi-pelham", borough: "bronx", name: "Pelham Bay Watchpost", pos: [40.8656, -73.8079], tags: ["park"] },
+        { id: "poi-fordham", borough: "bronx", name: "Fordham Arsenal", pos: [40.8615, -73.8902], tags: ["district"] },
+        { id: "poi-cityisland", borough: "bronx", name: "City Island Drydock", pos: [40.847, -73.7865], tags: ["shore"] },
+        { id: "poi-wavehill", borough: "bronx", name: "Wave Hill Sanctuary", pos: [40.898, -73.912], tags: ["park"] },
+        { id: "poi-arthur", borough: "bronx", name: "Arthur Avenue Commons", pos: [40.8549, -73.887], tags: ["market"] },
+        { id: "poi-orchard", borough: "bronx", name: "Orchard Beach Batteries", pos: [40.8695, -73.79], tags: ["shore"] },
+        { id: "poi-courthouse", borough: "bronx", name: "Bronx Hall Courtyard", pos: [40.8272, -73.924], tags: ["civic"] },
+
+        { id: "poi-prospect", borough: "brooklyn", name: "Prospect Park Gardens", pos: [40.6602, -73.969], tags: ["park"] },
+        { id: "poi-coney", borough: "brooklyn", name: "Coney Island Relay", pos: [40.5749, -73.985], tags: ["shore"] },
+        { id: "poi-bridgepark", borough: "brooklyn", name: "Bridge Park Bastion", pos: [40.7003, -73.9967], tags: ["park"] },
+        { id: "poi-barclays", borough: "brooklyn", name: "Barclays Bulwark", pos: [40.6826, -73.9754], tags: ["arena"] },
+        { id: "poi-greenwood", borough: "brooklyn", name: "Green-Wood Necropolis", pos: [40.6583, -73.9942], tags: ["historic"] },
+        { id: "poi-navyyard", borough: "brooklyn", name: "Navy Yard Foundry", pos: [40.7001, -73.9712], tags: ["industrial"] },
+        { id: "poi-williamsburg", borough: "brooklyn", name: "Williamsburg Signal Tower", pos: [40.7181, -73.9571], tags: ["district"] },
+        { id: "poi-bushwick", borough: "brooklyn", name: "Bushwick Generator Row", pos: [40.6958, -73.9171], tags: ["district"] },
+        { id: "poi-botanic", borough: "brooklyn", name: "Brooklyn Botanic Vault", pos: [40.6694, -73.9624], tags: ["garden"] },
+        { id: "poi-redhook", borough: "brooklyn", name: "Red Hook Shipworks", pos: [40.6762, -74.0124], tags: ["port"] },
+
+        { id: "poi-flushing", borough: "queens", name: "Flushing Meadows Array", pos: [40.7498, -73.8408], tags: ["park"] },
+        { id: "poi-jfk", borough: "queens", name: "JFK Skyport Ruins", pos: [40.6413, -73.7781], tags: ["airport"] },
+        { id: "poi-astoria", borough: "queens", name: "Astoria Power Annex", pos: [40.7794, -73.9224], tags: ["district"] },
+        { id: "poi-forest", borough: "queens", name: "Forest Park Rangers Hub", pos: [40.7017, -73.8505], tags: ["park"] },
+        { id: "poi-rockaway", borough: "queens", name: "Rockaway Breakwater", pos: [40.5866, -73.8169], tags: ["shore"] },
+        { id: "poi-citifield", borough: "queens", name: "Citi Field Outpost", pos: [40.7571, -73.8458], tags: ["stadium"] },
+        { id: "poi-jamaica", borough: "queens", name: "Jamaica Transit Nexus", pos: [40.7027, -73.789], tags: ["transit"] },
+        { id: "poi-longislandcity", borough: "queens", name: "LIC Reactor Block", pos: [40.7447, -73.9485], tags: ["industrial"] },
+        { id: "poi-cunningham", borough: "queens", name: "Cunningham Reserve", pos: [40.7358, -73.763], tags: ["park"] },
+        { id: "poi-alley", borough: "queens", name: "Alley Pond Observatory", pos: [40.7469, -73.7421], tags: ["park"] },
+
+        { id: "poi-ferry", borough: "staten", name: "St. George Ferry Yard", pos: [40.6437, -74.072], tags: ["port"] },
+        { id: "poi-greenbelt", borough: "staten", name: "Greenbelt Refuge", pos: [40.588, -74.135], tags: ["park"] },
+        { id: "poi-snug", borough: "staten", name: "Snug Harbor Enclave", pos: [40.6438, -74.1018], tags: ["historic"] },
+        { id: "poi-tottenville", borough: "staten", name: "Tottenville Watch", pos: [40.5128, -74.2513], tags: ["shore"] },
+        { id: "poi-greatkills", borough: "staten", name: "Great Kills Marina Hold", pos: [40.5543, -74.1515], tags: ["port"] },
+        { id: "poi-freshkills", borough: "staten", name: "Freshkills Wind Farm", pos: [40.5762, -74.1842], tags: ["industrial"] },
+        { id: "poi-silverlake", borough: "staten", name: "Silver Lake Battery", pos: [40.6279, -74.0922], tags: ["park"] },
+        { id: "poi-verrazzano", borough: "staten", name: "Verrazzano Anchorpoint", pos: [40.6066, -74.0447], tags: ["bridge"] },
+        { id: "poi-wolfe", borough: "staten", name: "Wolfe's Pond Haven", pos: [40.5184, -74.1876], tags: ["park"] },
+        { id: "poi-richmond", borough: "staten", name: "Richmond Town Keep", pos: [40.5703, -74.1451], tags: ["historic"] },
+      ];
+
+      const state = {
+        player: {
+          name: "Warden",
+          level: 1,
+          exp: 0,
+          nextExp: 90,
+          skillPoints: 0,
+          unlockedSkills: [],
+          hp: 120,
+          maxHp: 120,
+          mp: 45,
+          maxMp: 45,
+          atk: 10,
+          mag: 9,
+          def: 5,
+          gold: 70,
+          pos: [...NYC_CENTER],
+          inventory: ["potion", "potion", "ether", "ironPipe", "leatherCoat"],
+          equipment: { weapon: null, helmet: null, chest: null, arms: null, legs: null, boots: null, gloves: null, ring1: null, ring2: null, amulet: null },
+          statuses: [],
+          guarded: false,
+        },
+        inCombat: false,
+        enemy: null,
+        zone: null,
+        buildingCooldowns: {},
+        skillTab: "combat",
+        worldTick: 0,
+        world: { time: "day", weather: "clear" },
+        factions: { survivors: 0, cult: 0, raiders: 0 },
+        quests: [],
+        questStats: { kills: 0, scavenges: 0, buys: 0, dungeonClears: 0 },
+        dungeon: null,
+        campaign: {
+          activeMainQuest: null,
+          sideQuests: [],
+          stageByBorough: { manhattan: 0, bronx: 0, brooklyn: 0, queens: 0, staten: 0 },
+          tamed: { manhattan: false, bronx: false, brooklyn: false, queens: false, staten: false },
+          finalBossUnlocked: false,
+          finalBossDefeated: false,
+          boroughBossDefeated: { manhattan: false, bronx: false, brooklyn: false, queens: false, staten: false },
+        },
+        reclaimedPOIs: {},
+      };
+
+      let map, playerMarker, merchantMarker, moveInterval;
+      let currentTileLayer = null;
+      let currentTileName = "";
+      let currentTileIndex = 0;
+      let tileFailureCount = 0;
+      const buildingMarkers = {};
+      const poiMarkers = {};
+      const questGiverMarkers = {};
+      let activeQuestMarker = null;
+      let finalBossMarker = null;
+
+      const el = {
+        playerStats: document.getElementById("player-stats"),
+        zoneDisplay: document.getElementById("zone-display"),
+        timeWeather: document.getElementById("time-weather"),
+        mapSource: document.getElementById("map-source"),
+        playerStatuses: document.getElementById("player-statuses"),
+        equipment: document.getElementById("equipment"),
+        inventory: document.getElementById("inventory"),
+        nearestBuilding: document.getElementById("nearest-building"),
+        scavengeBtn: document.getElementById("scavenge-btn"),
+        skillPoints: document.getElementById("skill-points"),
+        skillList: document.getElementById("skill-list"),
+        skillCombatTab: document.getElementById("skill-combat-tab"),
+        skillArcaneTab: document.getElementById("skill-arcane-tab"),
+        saveBtn: document.getElementById("save-btn"),
+        loadBtn: document.getElementById("load-btn"),
+        restBtn: document.getElementById("rest-btn"),
+        log: document.getElementById("log"),
+        questList: document.getElementById("quest-list"),
+        rerollQuestsBtn: document.getElementById("reroll-quests-btn"),
+        factionList: document.getElementById("faction-list"),
+        mainObjective: document.getElementById("main-objective"),
+        boroughProgress: document.getElementById("borough-progress"),
+        poiList: document.getElementById("poi-list"),
+        questGiverBtn: document.getElementById("quest-giver-btn"),
+        reclaimPoiBtn: document.getElementById("reclaim-poi-btn"),
+        combatModal: document.getElementById("combat-modal"),
+        combatStatus: document.getElementById("combat-status"),
+        enemyStatuses: document.getElementById("enemy-statuses"),
+        attackBtn: document.getElementById("attack-btn"),
+        magicBtn: document.getElementById("magic-btn"),
+        itemBtn: document.getElementById("item-btn"),
+        guardBtn: document.getElementById("guard-btn"),
+        runBtn: document.getElementById("run-btn"),
+        merchantModal: document.getElementById("merchant-modal"),
+        merchantPricing: document.getElementById("merchant-pricing"),
+        merchantBuyList: document.getElementById("merchant-buy-list"),
+        merchantSellList: document.getElementById("merchant-sell-list"),
+        merchantCloseBtn: document.getElementById("merchant-close-btn"),
+        dungeonModal: document.getElementById("dungeon-modal"),
+        dungeonText: document.getElementById("dungeon-text"),
+        dungeonControls: document.getElementById("dungeon-controls"),
+        touchUp: document.getElementById("touch-up"),
+        touchDown: document.getElementById("touch-down"),
+        touchLeft: document.getElementById("touch-left"),
+        touchRight: document.getElementById("touch-right"),
+        touchScavenge: document.getElementById("touch-scavenge"),
+        touchMerchant: document.getElementById("touch-merchant"),
+        touchQuest: document.getElementById("touch-quest"),
+        buildId: document.getElementById("build-id"),
+        footerVersion: document.getElementById("footer-version"),
+      };
+
+      function init() {
+        map = L.map("map", { tap: true }).setView(state.player.pos, 13);
+        setupMapTiles();
+        playerMarker = L.marker(state.player.pos, { icon: playerIcon() }).addTo(map).bindPopup("You");
+        merchantMarker = L.marker([40.758, -73.9855]).addTo(map).bindPopup("Merchant Camp");
+
+        for (const b of BUILDINGS) {
+          buildingMarkers[b.id] = L.circleMarker(b.pos, { radius: 7, color: "#83e0a3" }).addTo(map).bindPopup(`Scavenge: ${b.name}`);
+        }
+        for (const poi of POINTS_OF_INTEREST) {
+          poiMarkers[poi.id] = L.circleMarker(poi.pos, { radius: 6, color: "#f6c55c", fillColor: "#f6c55c", fillOpacity: 0.8 }).addTo(map).bindPopup(`Landmark: ${poi.name}`);
+        }
+        for (const giver of QUEST_GIVERS) {
+          questGiverMarkers[giver.id] = L.marker(giver.pos).addTo(map).bindPopup(`Quest Giver: ${giver.name}`);
+        }
+        const finalBossPoi = POINTS_OF_INTEREST.find((p) => p.id === "poi-pcv");
+        if (finalBossPoi) {
+          finalBossMarker = L.circleMarker(finalBossPoi.pos, { radius: 9, color: "#58e2ff", fillColor: "#58e2ff", fillOpacity: 0.65 }).addTo(map).bindPopup("Final Boss Lair: Peter Cooper Village Keep");
+        }
+
+        wireEvents();
+        refreshZone();
+        generateQuestBoard();
+        generateBoroughSideQuests();
+        normalizeState();
+        renderAll();
+        applyWorldVisuals();
+        el.buildId.textContent = `Build: ${GAME_VERSION}`;
+        el.footerVersion.textContent = `Build ${GAME_VERSION}`;
+        log(`Welcome to the Ashes of New York (${GAME_VERSION}).`);
+      }
+
+      function wireEvents() {
+        document.addEventListener("keydown", handleMovementKeys);
+
+        el.saveBtn.onclick = saveGame;
+        el.loadBtn.onclick = loadGame;
+        el.restBtn.onclick = () => {
+          if (state.inCombat) return;
+          state.player.hp = Math.min(totalMaxHp(), state.player.hp + 20);
+          log("You rest and recover 20 HP.");
+          renderAll();
+        };
+
+        el.scavengeBtn.onclick = scavengeNearestBuilding;
+        el.questGiverBtn.onclick = tryQuestGiverInteract;
+        el.reclaimPoiBtn.onclick = reclaimNearestPOI;
+        el.skillCombatTab.onclick = () => { state.skillTab = "combat"; renderSkills(); };
+        el.skillArcaneTab.onclick = () => { state.skillTab = "arcane"; renderSkills(); };
+
+        el.rerollQuestsBtn.onclick = () => {
+          if (state.player.gold < 50) return log("Need 50g to reroll contracts.");
+          state.player.gold -= 50;
+          generateQuestBoard();
+          log("Contract board refreshed.");
+          renderAll();
+        };
+
+        el.attackBtn.onclick = playerAttack;
+        el.magicBtn.onclick = playerMagic;
+        el.itemBtn.onclick = usePotionInCombat;
+        el.guardBtn.onclick = playerGuard;
+        el.runBtn.onclick = attemptEscape;
+
+        el.merchantCloseBtn.onclick = () => el.merchantModal.classList.add("hidden");
+
+        bindMoveHold(el.touchUp, MOVE_STEP, 0);
+        bindMoveHold(el.touchDown, -MOVE_STEP, 0);
+        bindMoveHold(el.touchLeft, 0, -MOVE_STEP);
+        bindMoveHold(el.touchRight, 0, MOVE_STEP);
+        el.touchScavenge.onclick = scavengeNearestBuilding;
+        el.touchMerchant.onclick = tryMerchantInteract;
+        el.touchQuest.onclick = tryQuestGiverInteract;
+      }
+
+      function mapTileProviders() {
+        return [
+          {
+            name: "OpenStreetMap",
+            url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+            options: { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' },
+          },
+          {
+            name: "Carto Voyager",
+            url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+            options: {
+              subdomains: "abcd",
+              maxZoom: 20,
+              attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            },
+          },
+          {
+            name: "Carto Dark",
+            url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+            options: {
+              subdomains: "abcd",
+              maxZoom: 20,
+              attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            },
+          },
+        ];
+      }
+
+      function setupMapTiles() {
+        activateMapTileLayer(0);
+      }
+
+      function activateMapTileLayer(index) {
+        const providers = mapTileProviders();
+        const safeIndex = Math.max(0, Math.min(index, providers.length - 1));
+        const provider = providers[safeIndex];
+        currentTileIndex = safeIndex;
+
+        if (currentTileLayer) {
+          currentTileLayer.off("tileerror", handleTileError);
+          map.removeLayer(currentTileLayer);
+        }
+
+        currentTileLayer = L.tileLayer(provider.url, provider.options).addTo(map);
+        currentTileLayer.on("tileerror", handleTileError);
+        tileFailureCount = 0;
+        currentTileName = provider.name;
+        if (el.mapSource) el.mapSource.textContent = `Map tiles: ${currentTileName}`;
+      }
+
+      function handleTileError() {
+        tileFailureCount += 1;
+        if (tileFailureCount < 8) return;
+        const providers = mapTileProviders();
+        if (currentTileIndex < providers.length - 1) {
+          const next = currentTileIndex + 1;
+          log(`Map tile source issue detected. Switching to ${providers[next].name}.`);
+          activateMapTileLayer(next);
+        } else {
+          log("All tile providers failed. Check network or content blockers.");
+          tileFailureCount = 0;
+        }
+      }
+
+      function bindMoveHold(button, dLat, dLng) {
+        const start = (e) => {
+          e.preventDefault();
+          stepPlayer(dLat, dLng);
+          if (moveInterval) clearInterval(moveInterval);
+          moveInterval = setInterval(() => stepPlayer(dLat, dLng), 110);
+        };
+        const stop = () => {
+          if (moveInterval) {
+            clearInterval(moveInterval);
+            moveInterval = null;
+          }
+        };
+
+        button.addEventListener("touchstart", start, { passive: false });
+        button.addEventListener("touchend", stop);
+        button.addEventListener("touchcancel", stop);
+        button.addEventListener("mousedown", start);
+        button.addEventListener("mouseup", stop);
+        button.addEventListener("mouseleave", stop);
+      }
+
+      function handleMovementKeys(e) {
+        if (["INPUT", "TEXTAREA", "BUTTON"].includes(document.activeElement.tagName)) return;
+        const key = e.key.toLowerCase();
+        if (key === "e") return tryMerchantInteract();
+        if (key === "f") return scavengeNearestBuilding();
+        if (key === "g") return tryQuestGiverInteract();
+        if (key === "r") return reclaimNearestPOI();
+
+        const move = {
+          arrowup: [MOVE_STEP, 0], w: [MOVE_STEP, 0],
+          arrowdown: [-MOVE_STEP, 0], s: [-MOVE_STEP, 0],
+          arrowleft: [0, -MOVE_STEP], a: [0, -MOVE_STEP],
+          arrowright: [0, MOVE_STEP], d: [0, MOVE_STEP],
+        }[key];
+
+        if (!move) return;
+        e.preventDefault();
+        stepPlayer(move[0], move[1]);
+      }
+
+      function pointInBox(pos, box) {
+        return pos[0] >= box.minLat && pos[0] <= box.maxLat && pos[1] >= box.minLng && pos[1] <= box.maxLng;
+      }
+
+      function isOnBridge(pos) {
+        return BRIDGE_CROSSINGS.some((b) => pointInBox(pos, b));
+      }
+
+      function isWaterTile(pos) {
+        return WATER_ZONES.some((w) => pointInBox(pos, w));
+      }
+
+      function playerIcon() {
+        return L.divIcon({ className: "", html: '<div class="player-pin" title="Player"></div>', iconSize: [16, 16], iconAnchor: [8, 8] });
+      }
+
+      function objectiveIcon() {
+        return L.divIcon({ className: "", html: '<div class="objective-pin" title="Objective"></div>', iconSize: [16, 16], iconAnchor: [8, 8] });
+      }
+
+      function stepPlayer(dLat, dLng) {
+        if (state.inCombat || state.dungeon) return;
+        const nextPos = [state.player.pos[0] + dLat, state.player.pos[1] + dLng];
+        if (isWaterTile(nextPos) && !isOnBridge(nextPos)) {
+          log("Deep water blocks your path. Cross using a bridge.");
+          return;
+        }
+        state.player.pos = nextPos;
+        updatePlayerPosition();
+        refreshZone();
+        tickWorld();
+        tickScavengeCooldowns();
+        rollExplorationEvents();
+        renderAll();
+      }
+
+      function tickWorld() {
+        state.worldTick += 1;
+        if (state.worldTick % 30 === 0) {
+          const tIndex = TIMES.indexOf(state.world.time);
+          state.world.time = TIMES[(tIndex + 1) % TIMES.length];
+          state.world.weather = WEATHER_TYPES[Math.floor(Math.random() * WEATHER_TYPES.length)];
+          applyWorldVisuals();
+          log(`World shift: ${state.world.time.toUpperCase()} and ${state.world.weather.toUpperCase()}.`);
+        }
+      }
+
+      function applyWorldVisuals() {
+        document.body.classList.remove("time-day", "time-dusk", "time-night", "weather-rain", "weather-fog");
+        document.body.classList.add(`time-${state.world.time}`);
+        if (state.world.weather !== "clear") document.body.classList.add(`weather-${state.world.weather}`);
+      }
+
+      function refreshZone() {
+        let best = CRIME_ZONES[0];
+        let bestDistance = Infinity;
+        for (const zone of CRIME_ZONES) {
+          const d = distance(state.player.pos, zone.center);
+          if (d < bestDistance) {
+            bestDistance = d;
+            best = zone;
+          }
+        }
+        state.zone = best;
+      }
+
+      function updatePlayerPosition() {
+        playerMarker.setLatLng(state.player.pos);
+        map.panTo(state.player.pos, { animate: false });
+      }
+
+      function getNearestBuilding() {
+        let best = BUILDINGS[0];
+        let bestDistance = Infinity;
+        for (const b of BUILDINGS) {
+          const d = distance(state.player.pos, b.pos);
+          if (d < bestDistance) {
+            bestDistance = d;
+            best = b;
+          }
+        }
+        return { building: best, distance: bestDistance };
+      }
+
+      function currentBorough() {
+        const z = state.zone?.name || "";
+        if (["Midtown", "Lower Manhattan", "Harlem"].includes(z)) return "manhattan";
+        if (z === "South Bronx") return "bronx";
+        if (z === "Downtown Brooklyn") return "brooklyn";
+        if (z === "Queens Village") return "queens";
+        return "staten";
+      }
+
+      function getNearestQuestGiver() {
+        let best = QUEST_GIVERS[0];
+        let bestDistance = Infinity;
+        for (const g of QUEST_GIVERS) {
+          const d = distance(state.player.pos, g.pos);
+          if (d < bestDistance) {
+            bestDistance = d;
+            best = g;
+          }
+        }
+        return { giver: best, distance: bestDistance };
+      }
+
+      function getNearestPOI() {
+        let best = POINTS_OF_INTEREST[0];
+        let bestDistance = Infinity;
+        for (const poi of POINTS_OF_INTEREST) {
+          const d = distance(state.player.pos, poi.pos);
+          if (d < bestDistance) {
+            bestDistance = d;
+            best = poi;
+          }
+        }
+        return { poi: best, distance: bestDistance };
+      }
+
+      function allPOIsSecuredInBorough(borough) {
+        const pois = POINTS_OF_INTEREST.filter((p) => p.borough === borough);
+        return pois.length > 0 && pois.every((p) => state.reclaimedPOIs[p.id]);
+      }
+
+      function getBoroughBossPOI(borough) {
+        const cfg = BOROUGH_BOSSES[borough];
+        if (!cfg) return null;
+        return POINTS_OF_INTEREST.find((p) => p.id === cfg.poiId) || null;
+      }
+
+      function tryQuestGiverInteract() {
+        if (state.inCombat || state.dungeon) return;
+        const { giver, distance: d } = getNearestQuestGiver();
+        if (d > 0.02) return log("No quest giver nearby.");
+
+        const b = giver.borough;
+        if (state.campaign.activeMainQuest?.borough === b && !state.campaign.activeMainQuest.completed) {
+          log(`${giver.name}: Current objective remains active - ${state.campaign.activeMainQuest.title}.`);
+          renderAll();
+          return;
+        }
+
+        if (!allPOIsSecuredInBorough(b)) {
+          assignMainQuestForBorough(b, giver.name);
+        } else if (!state.campaign.boroughBossDefeated?.[b]) {
+          const bossPoi = getBoroughBossPOI(b);
+          state.campaign.activeMainQuest = {
+            id: `main-${b}-boss-${Date.now()}`,
+            borough: b,
+            stage: 99,
+            giver: giver.name,
+            title: `Defeat ${BOROUGH_BOSSES[b].name} at ${bossPoi?.name || BOROUGH_LABELS[b]}`,
+            type: "main_boss",
+            goal: 1,
+            progress: 0,
+            targetPOI: bossPoi?.id || null,
+            completed: false,
+          };
+          setActiveObjectiveMarker(bossPoi, state.campaign.activeMainQuest.title);
+          log(`${giver.name}: All landmarks secured. Borough boss sighted at ${bossPoi?.name}. Defeat them to tame ${BOROUGH_LABELS[b]}.`);
+        } else if (!state.campaign.tamed[b]) {
+          state.campaign.tamed[b] = true;
+          log(`${giver.name}: ${BOROUGH_LABELS[b]} is now fully tamed.`);
+          checkFinalBossUnlock();
+        } else if (state.campaign.finalBossUnlocked && !state.campaign.finalBossDefeated) {
+          log(`${giver.name}: The boroughs are steady. It is time to challenge the Overlord.`);
+          startFinalBossBattle();
+        } else {
+          log(`${giver.name}: ${BOROUGH_LABELS[b]} stands reclaimed. Keep helping locals with side contracts.`);
+        }
+        renderAll();
+      }
+
+      function assignMainQuestForBorough(borough, giverName) {
+        let stage = state.campaign.stageByBorough[borough] || 0;
+        const boroughPOIs = POINTS_OF_INTEREST.filter((p) => p.borough === borough);
+        const unreclaimed = boroughPOIs.filter((p) => !state.reclaimedPOIs[p.id]);
+
+        if (stage === 0 && unreclaimed.length === 0) {
+          stage = 1;
+          state.campaign.stageByBorough[borough] = 1;
+        }
+
+        if (stage >= 3) {
+          if (!state.campaign.boroughBossDefeated?.[borough]) {
+            const bossPoi = getBoroughBossPOI(borough);
+            state.campaign.activeMainQuest = {
+              id: `main-${borough}-boss-${Date.now()}`,
+              borough,
+              stage: 99,
+              giver: giverName,
+              title: `Defeat ${BOROUGH_BOSSES[borough].name} at ${bossPoi?.name || BOROUGH_LABELS[borough]}`,
+              type: "main_boss",
+              goal: 1,
+              progress: 0,
+              targetPOI: bossPoi?.id || null,
+              completed: false,
+            };
+            setActiveObjectiveMarker(bossPoi, state.campaign.activeMainQuest.title);
+            log(`${giverName}: Final borough holdout at ${bossPoi?.name}. Take them down.`);
+            return;
+          }
+          state.campaign.tamed[borough] = true;
+          checkFinalBossUnlock();
+          log(`${giverName}: ${BOROUGH_LABELS[borough]} is now fully tamed.`);
+          return;
+        }
+
+        const templates = [
+          { type: "main_reclaim", title: unreclaimed[0] ? `Reclaim ${unreclaimed[0].name}` : `Reclaim ${BOROUGH_LABELS[borough]} landmark`, goal: 1, targetPOI: unreclaimed[0]?.id || null },
+          { type: "main_kill", title: `Secure ${BOROUGH_LABELS[borough]} streets`, goal: 3, targetPOI: null },
+          { type: "main_dungeon", title: `Purge a ${BOROUGH_LABELS[borough]} stronghold`, goal: 1, targetPOI: null },
+        ];
+        const q = templates[stage];
+        state.campaign.activeMainQuest = {
+          id: `main-${borough}-${stage}-${Date.now()}`,
+          borough,
+          stage,
+          giver: giverName,
+          title: q.title,
+          type: q.type,
+          goal: q.goal,
+          progress: 0,
+          targetPOI: q.targetPOI,
+          completed: false,
+        };
+
+        if (q.type === "main_reclaim" && q.targetPOI) {
+          const targetPOI = POINTS_OF_INTEREST.find((p) => p.id === q.targetPOI);
+          setActiveObjectiveMarker(targetPOI, q.title);
+          log(`${giverName} assigned main quest: ${q.title}. Target marked on map at ${targetPOI.name}.`);
+        } else {
+          clearActiveObjectiveMarker();
+          log(`${giverName} assigned main quest: ${q.title}.`);
+        }
+      }
+
+      function setActiveObjectiveMarker(targetPOI, title) {
+        clearActiveObjectiveMarker();
+        if (!targetPOI) return;
+        activeQuestMarker = L.marker(targetPOI.pos, { icon: objectiveIcon() }).addTo(map).bindPopup(`Objective: ${title} @ ${targetPOI.name}`);
+      }
+
+      function clearActiveObjectiveMarker() {
+        if (activeQuestMarker && map) map.removeLayer(activeQuestMarker);
+        activeQuestMarker = null;
+      }
+
+      function completeMainQuest() {
+        const q = state.campaign.activeMainQuest;
+        if (!q || q.completed) return;
+        q.completed = true;
+        state.player.exp += 75;
+        state.player.gold += 90;
+        adjustFaction("survivors", 4);
+        state.campaign.stageByBorough[q.borough] += 1;
+        if (state.campaign.stageByBorough[q.borough] >= 3) {
+          state.campaign.tamed[q.borough] = true;
+          log(`${BOROUGH_LABELS[q.borough]} has been tamed.`);
+        }
+        state.campaign.activeMainQuest = null;
+        clearActiveObjectiveMarker();
+        checkFinalBossUnlock();
+      }
+
+      function checkFinalBossUnlock() {
+        const all = BOROUGH_ORDER.every((b) => state.campaign.tamed[b]);
+        if (all && !state.campaign.finalBossUnlocked) {
+          state.campaign.finalBossUnlocked = true;
+          log("All five boroughs are tamed. The Overlord has surfaced.");
+        }
+      }
+
+      function generateBoroughSideQuests() {
+        const pool = {
+          manhattan: ["Stabilize Central Park", "Secure Midtown Relays"],
+          bronx: ["Recover Bronx Zoo generators", "Hold Yankee perimeter"],
+          brooklyn: ["Clear Prospect routes", "Defend Coney channel"],
+          queens: ["Restore Flushing beacons", "Sweep JFK ruins"],
+          staten: ["Retake Ferry terminal", "Fortify Greenbelt refuge"],
+        };
+        state.campaign.sideQuests = [];
+        for (const b of BOROUGH_ORDER) {
+          const options = pool[b];
+          const title = options[Math.floor(Math.random() * options.length)];
+          state.campaign.sideQuests.push({
+            id: `side-${b}-${Date.now()}-${Math.random()}`,
+            borough: b,
+            title,
+            goal: 2,
+            progress: 0,
+            completed: false,
+          });
+        }
+      }
+
+      function updateCampaignProgress(kind, amount = 1, extra = {}) {
+        const borough = currentBorough();
+        const main = state.campaign.activeMainQuest;
+        if (main && main.borough === borough && !main.completed) {
+          if (main.type === "main_kill" && kind === "kill") main.progress = Math.min(main.goal, main.progress + amount);
+          if (main.type === "main_dungeon" && kind === "dungeon") main.progress = Math.min(main.goal, main.progress + amount);
+          if (main.type === "main_reclaim" && kind === "reclaim" && main.targetPOI === extra.poiId) main.progress = Math.min(main.goal, main.progress + amount);
+          if (main.type === "main_boss" && kind === "borough_boss" && main.borough === extra.borough) main.progress = Math.min(main.goal, main.progress + amount);
+          if (main.progress >= main.goal) {
+            log(`Main quest complete: ${main.title}. Return to the quest giver.`);
+            completeMainQuest();
+          }
+        }
+
+        for (const sq of state.campaign.sideQuests) {
+          if (sq.completed || sq.borough !== borough) continue;
+          if (kind === "kill" || kind === "scavenge" || kind === "reclaim") {
+            sq.progress = Math.min(sq.goal, sq.progress + amount);
+            if (sq.progress >= sq.goal) {
+              sq.completed = true;
+              state.player.gold += 35;
+              state.player.exp += 25;
+              log(`Side quest complete: ${sq.title} (+35g, +25 EXP).`);
+            }
+          }
+        }
+      }
+
+      function reclaimNearestPOI() {
+        if (state.inCombat || state.dungeon) return log("Cannot reclaim landmarks right now.");
+        const { poi, distance: d } = getNearestPOI();
+        if (d > 0.02) return log("No landmark close enough to reclaim.");
+
+        const bossBorough = poi.borough;
+        const bossCfg = BOROUGH_BOSSES[bossBorough];
+        if (bossCfg && bossCfg.poiId === poi.id && allPOIsSecuredInBorough(bossBorough) && !state.campaign.boroughBossDefeated?.[bossBorough]) {
+          log(`Boss presence detected at ${poi.name}.`);
+          startBoroughBossBattle(bossBorough);
+          return;
+        }
+
+        if (state.reclaimedPOIs[poi.id]) return log(`${poi.name} is already secured.`);
+
+        if (Math.random() < 0.45) {
+          log(`Resistance at ${poi.name}!`);
+          startCombat();
+          return;
+        }
+
+        state.reclaimedPOIs[poi.id] = true;
+        state.player.gold += 20;
+        state.player.exp += 20;
+        adjustFaction("survivors", 2);
+        updateCampaignProgress("reclaim", 1, { poiId: poi.id });
+        log(`Landmark reclaimed: ${poi.name}.`);
+        renderAll();
+      }
+
+      function tickScavengeCooldowns() {
+        for (const id of Object.keys(state.buildingCooldowns)) {
+          state.buildingCooldowns[id] = Math.max(0, state.buildingCooldowns[id] - 1);
+        }
+      }
+
+      function scavengeNearestBuilding() {
+        if (state.inCombat || state.dungeon) return log("Cannot scavenge right now.");
+        const { building, distance: d } = getNearestBuilding();
+        const radius = state.world.weather === "fog" ? 0.014 : 0.018;
+        if (d > radius) return log("No ruined building close enough to scavenge.");
+
+        const cooldown = state.buildingCooldowns[building.id] || 0;
+        if (cooldown > 0) return log(`${building.name} is depleted. Explore ${cooldown} more steps.`);
+
+        state.questStats.scavenges += 1;
+        updateQuestProgress("scavenge", 1);
+        updateCampaignProgress("scavenge", 1);
+
+        const dungeonRoll = Math.random();
+        if (dungeonRoll < 0.35) {
+          startDungeonRun(building);
+          state.buildingCooldowns[building.id] = building.baseCooldown + 3;
+          return;
+        }
+
+        const zoneBonus = state.zone.crimeIndex;
+        const weatherPenalty = state.world.weather === "rain" ? 0.85 : 1;
+        const roll = Math.random();
+        if (roll < 0.18 * zoneBonus) {
+          log(`While scavenging ${building.name}, an ambush erupts.`);
+          adjustFaction("raiders", -1);
+          startCombat();
+        } else if (roll < 0.58 * weatherPenalty) {
+          const salvageGold = Math.floor(12 + Math.random() * 20 * zoneBonus);
+          state.player.gold += salvageGold;
+          log(`Recovered ${salvageGold}g of salvage from ${building.name}.`);
+          adjustFaction("survivors", 1);
+        } else {
+          const table = zoneBonus > 1.2
+            ? ["ether", "relicBlade", "mysticCloak", "emberSigil"]
+            : ["potion", "ether", "ironPipe", "leatherCoat", "charmRing"];
+          const drop = table[Math.floor(Math.random() * table.length)];
+          state.player.inventory.push(drop);
+          log(`Found ${ITEMS[drop].name} in ${building.name}.`);
+        }
+
+        state.buildingCooldowns[building.id] = building.baseCooldown;
+        renderAll();
+      }
+
+      function startDungeonRun(building) {
+        state.dungeon = { building, stage: 1, bonus: Math.max(1, Math.floor(state.zone.crimeIndex * 2)) };
+        el.dungeonModal.classList.remove("hidden");
+        renderDungeon();
+      }
+
+      function renderDungeon() {
+        if (!state.dungeon) return;
+        const d = state.dungeon;
+        el.dungeonControls.innerHTML = "";
+
+        if (d.stage === 1) {
+          el.dungeonText.textContent = `${d.building.name}: Entry hall. Choose a route.`;
+          addDungeonBtn("Search Crates", () => {
+            state.player.gold += 8 * d.bonus;
+            log(`Dungeon haul: +${8 * d.bonus}g.`);
+            d.stage = 2;
+            renderDungeon();
+          });
+          addDungeonBtn("Advance Quietly", () => {
+            d.stage = 2;
+            renderDungeon();
+          });
+        } else if (d.stage === 2) {
+          el.dungeonText.textContent = `A guardian emerges in ${d.building.name}. Win to proceed.`;
+          addDungeonBtn("Fight Guardian", () => {
+            startCombat(true);
+            d.stage = 3;
+            renderDungeon();
+          });
+          addDungeonBtn("Retreat", () => {
+            state.dungeon = null;
+            el.dungeonModal.classList.add("hidden");
+            log("You retreat from the dungeon.");
+          });
+        } else {
+          el.dungeonText.textContent = `Core chamber looted. Claim relic and leave.`;
+          addDungeonBtn("Claim Reward", () => {
+            const reward = ["relicBlade", "mysticCloak", "emberSigil"][Math.floor(Math.random() * 3)];
+            state.player.inventory.push(reward);
+            state.player.exp += 28;
+            state.questStats.dungeonClears += 1;
+            updateQuestProgress("dungeon", 1);
+            updateCampaignProgress("dungeon", 1);
+            adjustFaction("survivors", 2);
+            log(`Dungeon clear! You found ${ITEMS[reward].name} and gained 28 EXP.`);
+            state.dungeon = null;
+            el.dungeonModal.classList.add("hidden");
+            renderAll();
+          });
+        }
+      }
+
+      function addDungeonBtn(label, fn) {
+        const b = document.createElement("button");
+        b.textContent = label;
+        b.onclick = fn;
+        el.dungeonControls.appendChild(b);
+      }
+
+      function rollExplorationEvents() {
+        const danger = state.zone.crimeIndex;
+        const timeMod = state.world.time === "night" ? 1.3 : state.world.time === "dusk" ? 1.1 : 0.9;
+        const weatherMod = state.world.weather === "rain" ? 1.15 : 1;
+        const combatChance = Math.min(0.82, 0.2 * danger * timeMod * weatherMod + 0.04);
+
+        if (Math.random() < combatChance) {
+          startCombat();
+          return;
+        }
+
+        if (Math.random() < 0.08 + danger * 0.03) {
+          const table = danger > 1.2
+            ? ["ether", "relicBlade", "mysticCloak", "emberSigil"]
+            : ["potion", "ether", "leatherCoat", "charmRing"];
+          const drop = table[Math.floor(Math.random() * table.length)];
+          state.player.inventory.push(drop);
+          log(`Street cache found: ${ITEMS[drop].name}.`);
+        }
+      }
+
+      function startCombat(dungeonFight = false) {
+        state.inCombat = true;
+        const template = ENEMY_ARCHETYPES[Math.floor(Math.random() * ENEMY_ARCHETYPES.length)];
+        const zoneMul = state.zone.crimeIndex * (dungeonFight ? 1.2 : 1);
+        state.enemy = {
+          name: `${state.zone.name} ${template.name}`,
+          hp: Math.floor(template.hp * zoneMul),
+          maxHp: Math.floor(template.hp * zoneMul),
+          atk: Math.floor(template.atk * zoneMul),
+          mag: Math.floor(template.mag * zoneMul),
+          tags: template.tags,
+          resist: template.resist,
+          weak: template.weak,
+          statuses: [],
+          exp: Math.floor(18 * zoneMul + state.player.level * 6),
+          gold: Math.floor(10 * zoneMul + Math.random() * 12),
+          lootTier: zoneMul,
+          intent: "Strike",
+          dungeonFight,
+          isFinalBoss: false,
+        };
+        rollEnemyIntent();
+        el.combatModal.classList.remove("hidden");
+        log(`Encounter: ${state.enemy.name}`);
+        renderCombatStatus();
+      }
+
+      function startBoroughBossBattle(borough) {
+        const cfg = BOROUGH_BOSSES[borough];
+        if (!cfg) return;
+        if (state.campaign.boroughBossDefeated?.[borough]) return log(`${BOROUGH_LABELS[borough]} boss already defeated.`);
+        state.inCombat = true;
+        state.enemy = {
+          name: cfg.name,
+          hp: cfg.hp,
+          maxHp: cfg.hp,
+          atk: cfg.atk,
+          mag: cfg.mag,
+          tags: ["boroughBoss", "warlord"],
+          resist: cfg.resist,
+          weak: cfg.weak,
+          statuses: [],
+          exp: cfg.exp,
+          gold: cfg.gold,
+          lootTier: 2.8,
+          intent: "Annihilate",
+          dungeonFight: false,
+          isFinalBoss: false,
+          isBoroughBoss: true,
+          borough,
+        };
+        rollEnemyIntent();
+        el.combatModal.classList.remove("hidden");
+        log(`Borough boss battle begins: ${cfg.name}.`);
+        renderCombatStatus();
+      }
+
+      function startFinalBossBattle() {
+        if (state.campaign.finalBossDefeated) return log("The Overlord has already fallen.");
+        if (!state.campaign.finalBossUnlocked) return log("The city is not ready. Tame all boroughs first.");
+        const finalBossPoi = POINTS_OF_INTEREST.find((p) => p.id === "poi-pcv");
+        const lairDistance = finalBossPoi ? distance(state.player.pos, finalBossPoi.pos) : Infinity;
+        if (lairDistance > 0.025) return log("Overlord signal located at Peter Cooper Village Keep. Move closer to begin the final battle.");
+        state.inCombat = true;
+        state.enemy = {
+          name: "Overlord Malachai",
+          hp: 320,
+          maxHp: 320,
+          atk: 22,
+          mag: 20,
+          tags: ["warlord", "cult"],
+          resist: { physical: 1.15, fire: 1, lightning: 1 },
+          weak: "physical",
+          statuses: [],
+          exp: 420,
+          gold: 500,
+          lootTier: 3,
+          intent: "Annihilate",
+          dungeonFight: false,
+          isFinalBoss: true,
+        };
+        rollEnemyIntent();
+        el.combatModal.classList.remove("hidden");
+        log("Final battle begins: Overlord Malachai descends on the city.");
+        renderCombatStatus();
+      }
+
+      function rollEnemyIntent() {
+        if (!state.enemy) return;
+        const intents = ["Strike", "Hex", "Guard Break", "Rally"];
+        state.enemy.intent = intents[Math.floor(Math.random() * intents.length)];
+      }
+
+      function applyStatusesAtTurnStart(target, label) {
+        let total = 0;
+        target.statuses = target.statuses.filter((s) => {
+          if (s.type === "burn" || s.type === "bleed") {
+            target.hp -= s.power;
+            total += s.power;
+          }
+          if (s.type === "regen") {
+            target.hp = Math.min(target.maxHp ?? target.maxHp, target.hp + s.power);
+          }
+          s.turns -= 1;
+          return s.turns > 0;
+        });
+        if (total > 0) log(`${label} suffers ${total} damage from status effects.`);
+      }
+
+      function playerAttack() {
+        if (!state.inCombat) return;
+        applyStatusesAtTurnStart(state.player, "You");
+        if (state.player.hp <= 0) return handlePlayerDefeat();
+
+        const base = Math.max(1, randomRange(4, 9) + totalAtk());
+        const dmg = computeElementalDamage(base, "physical", state.enemy);
+        state.enemy.hp -= dmg;
+        log(`You strike for ${dmg} physical damage.`);
+
+        if (state.player.unlockedSkills.includes("bladeMastery") && Math.random() < 0.3) {
+          addStatus(state.enemy, { type: "bleed", turns: 3, power: 3 });
+          log("Bleed inflicted.");
+        }
+        afterPlayerAction();
+      }
+
+      function chooseSpell() {
+        if (state.player.unlockedSkills.includes("stormCall")) return { name: "Storm Call", element: "lightning", cost: 20, min: 16, max: 30, status: "shock" };
+        if (state.player.unlockedSkills.includes("pyroBurst")) return { name: "Pyro Burst", element: "fire", cost: 14, min: 12, max: 22, status: "burn" };
+        return { name: "Arcane Burst", element: "fire", cost: 10, min: 8, max: 16, status: null };
+      }
+
+      function playerMagic() {
+        if (!state.inCombat) return;
+        applyStatusesAtTurnStart(state.player, "You");
+        if (state.player.hp <= 0) return handlePlayerDefeat();
+
+        const spell = chooseSpell();
+        if (state.player.mp < spell.cost) return log("Not enough MP.");
+        state.player.mp -= spell.cost;
+
+        const raw = Math.max(4, randomRange(spell.min, spell.max) + totalMag());
+        const dmg = computeElementalDamage(raw, spell.element, state.enemy);
+        state.enemy.hp -= dmg;
+        log(`${spell.name} deals ${dmg} ${spell.element} damage.`);
+
+        if (spell.status === "burn" && Math.random() < 0.45) addStatus(state.enemy, { type: "burn", turns: 3, power: 4 });
+        if (spell.status === "shock" && Math.random() < 0.35) addStatus(state.enemy, { type: "shock", turns: 2, power: 0 });
+
+        afterPlayerAction();
+      }
+
+      function playerGuard() {
+        if (!state.inCombat) return;
+        state.player.guarded = true;
+        if (state.player.unlockedSkills.includes("guardian")) addStatus(state.player, { type: "ward", turns: 1, power: 0 });
+        log("You brace for impact.");
+        enemyTurn();
+        renderAll();
+      }
+
+      function usePotionInCombat() {
+        if (!state.inCombat) return;
+        const idx = state.player.inventory.indexOf("potion");
+        if (idx === -1) return log("No potion available.");
+        state.player.inventory.splice(idx, 1);
+        state.player.hp = Math.min(totalMaxHp(), state.player.hp + ITEMS.potion.heal);
+        log(`Potion restores ${ITEMS.potion.heal} HP.`);
+        enemyTurn();
+        renderAll();
+      }
+
+      function attemptEscape() {
+        if (!state.inCombat) return;
+        const weatherPenalty = state.world.weather === "fog" ? 0.12 : 0;
+        const chance = Math.max(0.18, 0.52 - (state.zone.crimeIndex - 1) * 0.2 - weatherPenalty);
+        if (Math.random() < chance) {
+          log("Escape successful.");
+          endCombat(false);
+        } else {
+          log("Escape failed.");
+          enemyTurn();
+          renderAll();
+        }
+      }
+
+      function afterPlayerAction() {
+        applyStatusesAtTurnStart(state.enemy, state.enemy.name);
+        if (state.enemy.hp <= 0) return onEnemyDefeated();
+        enemyTurn();
+        renderAll();
+      }
+
+      function enemyTurn() {
+        if (!state.inCombat) return;
+        applyStatusesAtTurnStart(state.enemy, state.enemy.name);
+        if (state.enemy.hp <= 0) return onEnemyDefeated();
+
+        const shocked = hasStatus(state.enemy, "shock");
+        if (shocked && Math.random() < 0.45) {
+          log(`${state.enemy.name} is shocked and loses their turn.`);
+          removeStatus(state.enemy, "shock");
+          return;
+        }
+
+        rollEnemyIntent();
+        const useMagic = state.enemy.mag > 0 && (state.enemy.intent === "Hex" || Math.random() < 0.25);
+        let damage = useMagic
+          ? Math.max(2, randomRange(5, 11) + state.enemy.mag - totalDef())
+          : Math.max(1, randomRange(4, 10) + state.enemy.atk - totalDef());
+
+        if (state.player.guarded) damage = Math.floor(damage * 0.6);
+        if (hasStatus(state.player, "ward")) damage = Math.floor(damage * 0.75);
+
+        state.player.hp -= damage;
+        state.player.guarded = false;
+        log(`${state.enemy.name} ${useMagic ? "casts" : "attacks"} for ${damage}.`);
+
+        if (state.player.unlockedSkills.includes("riposte") && Math.random() < 0.15) {
+          const counter = Math.max(2, Math.floor(totalAtk() * 0.5));
+          state.enemy.hp -= counter;
+          log(`Riposte hits back for ${counter}.`);
+        }
+
+        if (state.enemy.hp <= 0) return onEnemyDefeated();
+        if (state.player.hp <= 0) handlePlayerDefeat();
+      }
+
+      function handlePlayerDefeat() {
+        state.player.hp = 1;
+        state.player.gold = Math.max(0, state.player.gold - 25);
+        log("Defeated. You lose 25g and barely survive.");
+        endCombat(false);
+      }
+
+      function onEnemyDefeated() {
+        state.questStats.kills += 1;
+        updateQuestProgress("kill", 1);
+        updateCampaignProgress("kill", 1);
+
+        if (state.enemy.tags.includes("cult")) {
+          adjustFaction("cult", -2);
+          adjustFaction("survivors", 1);
+        }
+        if (state.enemy.tags.includes("raider")) {
+          adjustFaction("raiders", -1);
+          adjustFaction("survivors", 1);
+        }
+
+        if (state.enemy.isFinalBoss) {
+          state.campaign.finalBossDefeated = true;
+          log("The Overlord is defeated. New York is liberated.");
+        }
+        if (state.enemy.isBoroughBoss) {
+          const b = state.enemy.borough;
+          state.campaign.boroughBossDefeated[b] = true;
+          updateCampaignProgress("borough_boss", 1, { borough: b });
+          state.campaign.tamed[b] = true;
+          checkFinalBossUnlock();
+          log(`${BOROUGH_LABELS[b]} boss defeated. Borough tamed.`);
+        }
+
+        state.player.exp += state.enemy.exp;
+        state.player.gold += state.enemy.gold;
+        log(`Victory! +${state.enemy.exp} EXP, +${state.enemy.gold}g.`);
+
+        const drop = rollLootDrop(state.enemy.lootTier, state.enemy.isFinalBoss);
+        if (drop) {
+          state.player.inventory.push(drop);
+          const item = ITEMS[drop];
+          log(`Loot: ${item.name} [${item.rarity.toUpperCase()}].`);
+        }
+
+        while (state.player.exp >= state.player.nextExp) {
+          state.player.exp -= state.player.nextExp;
+          state.player.level += 1;
+          state.player.skillPoints += 1;
+          state.player.nextExp = Math.floor(state.player.nextExp * 1.24);
+          state.player.maxHp += 10;
+          state.player.maxMp += 6;
+          state.player.atk += 2;
+          state.player.mag += 2;
+          state.player.def += 1;
+          state.player.hp = state.player.maxHp;
+          state.player.mp = state.player.maxMp;
+          log(`Level up! Level ${state.player.level}.`);
+        }
+
+        if (state.player.unlockedSkills.includes("aegis")) {
+          addStatus(state.player, { type: "regen", turns: 3, power: 4 });
+          log("Aegis grants post-combat regeneration.");
+        }
+
+        endCombat(true);
+      }
+
+      function endCombat(victory) {
+        state.inCombat = false;
+        if (state.enemy?.dungeonFight && victory && state.dungeon) {
+          log("Dungeon guardian defeated.");
+        }
+        state.enemy = null;
+        state.player.guarded = false;
+        el.combatModal.classList.add("hidden");
+        renderAll();
+      }
+
+      function computeElementalDamage(base, element, enemy) {
+        const resist = enemy.resist?.[element] ?? 1;
+        let dmg = Math.floor(base / resist);
+        if (enemy.weak === element) dmg = Math.floor(dmg * 1.25);
+        return Math.max(1, dmg);
+      }
+
+      function addStatus(target, status) {
+        const existing = target.statuses.find((s) => s.type === status.type);
+        if (existing) {
+          existing.turns = Math.max(existing.turns, status.turns);
+          existing.power = Math.max(existing.power, status.power);
+        } else {
+          target.statuses.push({ ...status });
+        }
+      }
+      function hasStatus(target, type) {
+        return target.statuses.some((s) => s.type === type);
+      }
+      function removeStatus(target, type) {
+        target.statuses = target.statuses.filter((s) => s.type !== type);
+      }
+
+      function tryMerchantInteract() {
+        if (state.inCombat || state.dungeon) return;
+        const d = distance(state.player.pos, merchantMarker.getLatLng());
+        if (d >= 0.02) return log("No merchant nearby.");
+        renderMerchantLists();
+        el.merchantModal.classList.remove("hidden");
+        log("You enter the merchant camp.");
+      }
+
+      function totalMaxHp() {
+        return state.player.maxHp + equipmentBonus("hp");
+      }
+
+      function rarityAtTier(tier, boss = false) {
+        if (boss) return Math.random() < 0.2 ? "unique" : (Math.random() < 0.55 ? "mythical" : "legendary");
+        const roll = Math.random();
+        if (tier <= 0.95) return roll < 0.7 ? "common" : "uncommon";
+        if (tier <= 1.2) return roll < 0.45 ? "common" : roll < 0.82 ? "uncommon" : "epic";
+        if (tier <= 1.5) return roll < 0.2 ? "common" : roll < 0.55 ? "uncommon" : roll < 0.87 ? "epic" : "legendary";
+        if (tier <= 1.9) return roll < 0.15 ? "uncommon" : roll < 0.45 ? "epic" : roll < 0.8 ? "legendary" : "mythical";
+        return roll < 0.08 ? "epic" : roll < 0.45 ? "legendary" : roll < 0.9 ? "mythical" : "unique";
+      }
+
+      function rollLootDrop(lootTier, isBoss = false) {
+        const dropChance = isBoss ? 1 : Math.min(0.95, 0.5 + lootTier * 0.18);
+        if (Math.random() > dropChance) return null;
+        const rarity = rarityAtTier(lootTier, isBoss);
+        const candidates = Object.entries(ITEMS)
+          .filter(([id, it]) => it.rarity === rarity && (!it.unique || isBoss))
+          .map(([id]) => id);
+        if (!candidates.length) return isBoss ? "boroughHeart" : "potion";
+        return candidates[Math.floor(Math.random() * candidates.length)];
+      }
+
+      function getMerchantPriceModifier() {
+        const rep = state.factions.survivors;
+        if (rep >= 20) return 0.8;
+        if (rep >= 10) return 0.9;
+        if (rep <= -15) return 1.35;
+        if (rep <= -8) return 1.2;
+        return 1;
+      }
+
+      function renderMerchantLists() {
+        const mod = getMerchantPriceModifier();
+        el.merchantPricing.textContent = `Survivor reputation pricing modifier: x${mod.toFixed(2)}`;
+
+        el.merchantBuyList.innerHTML = "";
+        for (const id of MERCHANT_STOCK) {
+          const item = ITEMS[id];
+          const price = Math.ceil(item.value * mod);
+          const li = document.createElement("li");
+          const b = document.createElement("button");
+          b.textContent = `Buy ${item.name} [${item.rarity || "common"}] (${price}g)`;
+          b.onclick = () => buyItem(id, price);
+          li.appendChild(b);
+          el.merchantBuyList.appendChild(li);
+        }
+
+        el.merchantSellList.innerHTML = "";
+        for (const { id, count } of uniqueInventory()) {
+          const item = ITEMS[id];
+          const sell = Math.floor(item.value / 2);
+          const li = document.createElement("li");
+          const b = document.createElement("button");
+          b.textContent = `Sell ${item.name} [${item.rarity || "common"}] x${count} (${sell}g)`;
+          b.onclick = () => sellItem(id, sell);
+          li.appendChild(b);
+          el.merchantSellList.appendChild(li);
+        }
+      }
+
+      function buyItem(id, price) {
+        if (state.player.gold < price) return log("Not enough gold.");
+        state.player.gold -= price;
+        state.player.inventory.push(id);
+        state.questStats.buys += 1;
+        updateQuestProgress("buy", 1);
+        adjustFaction("survivors", 1);
+        log(`Bought ${ITEMS[id].name}.`);
+        renderAll();
+        renderMerchantLists();
+      }
+
+      function sellItem(id, value) {
+        const idx = state.player.inventory.indexOf(id);
+        if (idx === -1) return;
+        state.player.inventory.splice(idx, 1);
+        state.player.gold += value;
+        log(`Sold ${ITEMS[id].name} for ${value}g.`);
+        renderAll();
+        renderMerchantLists();
+      }
+
+      function adjustFaction(name, delta) {
+        state.factions[name] = Math.max(-100, Math.min(100, state.factions[name] + delta));
+      }
+
+      function generateQuestBoard() {
+        const templates = [
+          { id: `kill-${Date.now()}`, type: "kill", title: "Purge Hostiles", goal: 4, rewardGold: 55, rewardExp: 45 },
+          { id: `scav-${Date.now()+1}`, type: "scavenge", title: "Supply Recovery", goal: 3, rewardGold: 45, rewardExp: 35 },
+          { id: `trade-${Date.now()+2}`, type: "buy", title: "Merchant Support", goal: 2, rewardGold: 35, rewardExp: 28 },
+          { id: `dung-${Date.now()+3}`, type: "dungeon", title: "Deep Sweep", goal: 1, rewardGold: 85, rewardExp: 70 },
+        ];
+        state.quests = templates.slice(0, 3).map((q) => ({ ...q, progress: 0, claimed: false }));
+      }
+
+      function updateQuestProgress(type, amount) {
+        for (const q of state.quests) {
+          if (q.type === type && !q.claimed) q.progress = Math.min(q.goal, q.progress + amount);
+        }
+      }
+
+      function claimQuest(id) {
+        const q = state.quests.find((x) => x.id === id);
+        if (!q || q.claimed || q.progress < q.goal) return;
+        q.claimed = true;
+        state.player.gold += q.rewardGold;
+        state.player.exp += q.rewardExp;
+        adjustFaction("survivors", 2);
+        log(`Quest complete: ${q.title} (+${q.rewardGold}g, +${q.rewardExp} EXP).`);
+        renderAll();
+      }
+
+      function renderAll() {
+        renderPlayer();
+        renderStatusRows();
+        renderEquipment();
+        renderInventory();
+        renderScavengeStatus();
+        renderSkills();
+        renderQuests();
+        renderCampaignPanel();
+        renderFactions();
+        renderCombatStatus();
+      }
+
+      function renderPlayer() {
+        el.playerStats.innerHTML = `
+          <p><strong>${state.player.name}</strong> Lv. ${state.player.level}</p>
+          <p>HP: ${state.player.hp}/${totalMaxHp()}</p>
+          <p>MP: ${state.player.mp}/${state.player.maxMp}</p>
+          <p>ATK: ${totalAtk()} | MAG: ${totalMag()} | DEF: ${totalDef()}</p>
+          <p>EXP: ${state.player.exp}/${state.player.nextExp}</p>
+          <p>Gold: ${state.player.gold}</p>
+        `;
+        el.zoneDisplay.textContent = `Zone: ${state.zone.name} (Threat x${state.zone.crimeIndex.toFixed(2)})`;
+        el.timeWeather.textContent = `Time: ${state.world.time.toUpperCase()} | Weather: ${state.world.weather.toUpperCase()}`;
+      }
+
+      function renderStatusRows() {
+        el.playerStatuses.innerHTML = renderStatusPills(state.player.statuses);
+      }
+
+      function renderStatusPills(statuses) {
+        if (!statuses.length) return "<span class='status-pill'>None</span>";
+        return statuses.map((s) => `<span class="status-pill pill-${s.type}">${s.type} (${s.turns})</span>`).join(" ");
+      }
+
+      function renderEquipment() {
+        const e = state.player.equipment;
+        const labels = {
+          weapon: "Weapon",
+          helmet: "Helmet",
+          chest: "Chest",
+          arms: "Arms",
+          legs: "Legs",
+          boots: "Boots",
+          gloves: "Gloves",
+          ring1: "Ring 1",
+          ring2: "Ring 2",
+          amulet: "Amulet",
+        };
+        el.equipment.innerHTML = EQUIPMENT_SLOTS.map((slot) => {
+          const id = e[slot];
+          if (!id) return `<p>${labels[slot]}: None</p>`;
+          const item = ITEMS[id];
+          const rarityColor = RARITY_COLORS[item.rarity] || "#d3d9e0";
+          return `<p>${labels[slot]}: <span style="color:${rarityColor}">${item.name}</span> (${item.rarity})</p>`;
+        }).join("");
+      }
+
+      function renderInventory() {
+        el.inventory.innerHTML = "";
+        for (const { id, count } of uniqueInventory()) {
+          const item = ITEMS[id];
+          const li = document.createElement("li");
+          const rarity = item.rarity ? ` [${item.rarity}]` : "";
+          li.textContent = `${item.name}${rarity} x${count} `;
+          if (item.rarity) li.style.color = RARITY_COLORS[item.rarity] || "#d3d9e0";
+
+          if (item.type === "equipment") {
+            const b = document.createElement("button");
+            b.textContent = "Equip";
+            b.onclick = () => equipItem(id);
+            li.appendChild(b);
+          }
+          if (item.type === "consumable") {
+            const b = document.createElement("button");
+            b.textContent = "Use";
+            b.onclick = () => useConsumable(id);
+            li.appendChild(b);
+          }
+          el.inventory.appendChild(li);
+        }
+      }
+
+      function renderScavengeStatus() {
+        const { building, distance: d } = getNearestBuilding();
+        const cooldown = state.buildingCooldowns[building.id] || 0;
+        const radius = state.world.weather === "fog" ? 0.014 : 0.018;
+        const near = d <= radius;
+        el.nearestBuilding.innerHTML = `Nearest ruin: <strong>${building.name}</strong> (${(d * 111).toFixed(2)} km)`;
+        el.scavengeBtn.disabled = !near || cooldown > 0 || state.inCombat || !!state.dungeon;
+        el.scavengeBtn.textContent = cooldown > 0 ? `Scavenge Cooldown (${cooldown})` : "Scavenge Building";
+        for (const b of BUILDINGS) {
+          const color = (state.buildingCooldowns[b.id] || 0) > 0 ? "#9aa4b3" : "#83e0a3";
+          buildingMarkers[b.id].setStyle({ color, fillColor: color });
+        }
+      }
+
+      function renderSkills() {
+        const pool = state.skillTab === "combat" ? COMBAT_SKILLS : MAGIC_SKILLS;
+        el.skillPoints.textContent = `Skill points: ${state.player.skillPoints} (${state.skillTab.toUpperCase()})`;
+        el.skillList.innerHTML = "";
+        for (const s of pool) {
+          const li = document.createElement("li");
+          const unlocked = state.player.unlockedSkills.includes(s.id);
+          const b = document.createElement("button");
+          b.textContent = unlocked ? `Unlocked ${s.name}` : `Unlock ${s.name} (${s.cost})`;
+          b.disabled = unlocked || state.player.skillPoints < s.cost;
+          b.onclick = () => unlockSkill(s);
+          li.textContent = `${s.effect} `;
+          li.appendChild(b);
+          el.skillList.appendChild(li);
+        }
+      }
+
+      function unlockSkill(skill) {
+        if (state.player.unlockedSkills.includes(skill.id) || state.player.skillPoints < skill.cost) return;
+        state.player.skillPoints -= skill.cost;
+        state.player.unlockedSkills.push(skill.id);
+        if (skill.apply) skill.apply(state.player);
+        state.player.hp = Math.min(state.player.hp, totalMaxHp());
+        state.player.mp = Math.min(state.player.mp, state.player.maxMp);
+        log(`Unlocked skill: ${skill.name}.`);
+        renderAll();
+      }
+
+      function renderQuests() {
+        el.questList.innerHTML = "";
+        for (const q of state.quests) {
+          const li = document.createElement("li");
+          li.className = q.progress >= q.goal ? "quest-done" : "";
+          li.textContent = `${q.title}: ${q.progress}/${q.goal} `;
+          if (q.progress >= q.goal && !q.claimed) {
+            const b = document.createElement("button");
+            b.textContent = "Claim";
+            b.onclick = () => claimQuest(q.id);
+            li.appendChild(b);
+          }
+          if (q.claimed) li.append("(claimed)");
+          el.questList.appendChild(li);
+        }
+
+        const borough = currentBorough();
+        const side = state.campaign.sideQuests.filter((q) => q.borough === borough);
+        for (const sq of side) {
+          const li = document.createElement("li");
+          li.className = sq.completed ? "quest-done" : "";
+          li.textContent = `[${BOROUGH_LABELS[borough]}] ${sq.title}: ${sq.progress}/${sq.goal}${sq.completed ? " (done)" : ""}`;
+          el.questList.appendChild(li);
+        }
+      }
+
+      function renderCampaignPanel() {
+        const main = state.campaign.activeMainQuest;
+        if (state.campaign.finalBossDefeated) {
+          el.mainObjective.textContent = "Final objective complete: Overlord defeated.";
+        } else if (state.campaign.finalBossUnlocked) {
+          el.mainObjective.textContent = "Final objective: travel to Peter Cooper Village Keep and speak to any quest giver to challenge the Overlord.";
+        } else if (main) {
+          el.mainObjective.textContent = `${main.title} (${main.progress}/${main.goal}) in ${BOROUGH_LABELS[main.borough]}`;
+        } else {
+          el.mainObjective.textContent = "Talk to a borough quest giver for your next takeover objective.";
+        }
+
+        el.boroughProgress.innerHTML = "";
+        for (const b of BOROUGH_ORDER) {
+          const li = document.createElement("li");
+          const st = state.campaign.tamed[b] ? "TAMED" : `Stage ${state.campaign.stageByBorough[b]}/3 | Boss ${state.campaign.boroughBossDefeated?.[b] ? "down" : "alive"}`;
+          li.textContent = `${BOROUGH_LABELS[b]}: ${st}`;
+          el.boroughProgress.appendChild(li);
+        }
+
+        const current = currentBorough();
+        const nearby = POINTS_OF_INTEREST.filter((p) => p.borough === current);
+        el.poiList.innerHTML = "";
+        for (const poi of nearby) {
+          const li = document.createElement("li");
+          const secured = state.reclaimedPOIs[poi.id] ? "secured" : "contested";
+          li.textContent = `${poi.name} (${secured})`;
+          el.poiList.appendChild(li);
+          if (poiMarkers[poi.id]) {
+            const color = state.reclaimedPOIs[poi.id] ? "#68e089" : "#f6c55c";
+            poiMarkers[poi.id].setStyle({ color, fillColor: color });
+          }
+        }
+      }
+
+      function renderFactions() {
+        el.factionList.innerHTML = "";
+        for (const [name, val] of Object.entries(state.factions)) {
+          const li = document.createElement("li");
+          li.textContent = `${name}: ${val}`;
+          el.factionList.appendChild(li);
+        }
+      }
+
+      function renderCombatStatus() {
+        if (!state.inCombat || !state.enemy) {
+          el.combatStatus.textContent = "No active combat.";
+          el.enemyStatuses.innerHTML = "";
+          return;
+        }
+        const spell = chooseSpell();
+        el.combatStatus.innerHTML = `
+          <p><strong>${state.enemy.name}</strong></p>
+          <p>Enemy HP: ${Math.max(0, state.enemy.hp)}/${state.enemy.maxHp}</p>
+          <p>Enemy intent: ${state.enemy.intent}</p>
+          <p>Weak to: ${state.enemy.weak}</p>
+          <hr />
+          <p>Your HP: ${state.player.hp}/${totalMaxHp()} | MP: ${state.player.mp}/${state.player.maxMp}</p>
+          <p>Current spell: ${spell.name} (${spell.element}, cost ${spell.cost})</p>
+        `;
+        el.enemyStatuses.innerHTML = renderStatusPills(state.enemy.statuses);
+      }
+
+      function useConsumable(id) {
+        if (state.inCombat && id !== "potion") return log("Only Potion may be used in combat.");
+        const idx = state.player.inventory.indexOf(id);
+        if (idx === -1) return;
+        state.player.inventory.splice(idx, 1);
+        if (ITEMS[id].heal) {
+          state.player.hp = Math.min(totalMaxHp(), state.player.hp + ITEMS[id].heal);
+          log(`Used ${ITEMS[id].name}.`);
+        }
+        if (ITEMS[id].mana) {
+          state.player.mp = Math.min(state.player.maxMp, state.player.mp + ITEMS[id].mana);
+          log(`Restored ${ITEMS[id].mana} MP.`);
+        }
+        renderAll();
+      }
+
+      function equipItem(id) {
+        const item = ITEMS[id];
+        if (!item || item.type !== "equipment") return;
+        const slot = item.slot;
+        if (!EQUIPMENT_SLOTS.includes(slot)) return;
+        const current = state.player.equipment[slot];
+        if (current) state.player.inventory.push(current);
+        const idx = state.player.inventory.indexOf(id);
+        if (idx !== -1) {
+          state.player.inventory.splice(idx, 1);
+          state.player.equipment[slot] = id;
+          log(`Equipped ${item.name} in ${slot}.`);
+        }
+        renderAll();
+      }
+
+      function equipmentBonus(stat) {
+        return EQUIPMENT_SLOTS.reduce((sum, slot) => {
+          const id = state.player.equipment[slot];
+          if (!id) return sum;
+          return sum + (ITEMS[id][stat] || 0);
+        }, 0);
+      }
+
+      const totalAtk = () => state.player.atk + equipmentBonus("atk");
+      const totalDef = () => state.player.def + equipmentBonus("def");
+      const totalMag = () => state.player.mag + equipmentBonus("mag");
+
+      function uniqueInventory() {
+        const counts = {};
+        for (const id of state.player.inventory) counts[id] = (counts[id] || 0) + 1;
+        return Object.entries(counts).map(([id, count]) => ({ id, count }));
+      }
+
+      function saveGame() {
+        localStorage.setItem(SAVE_KEY, JSON.stringify(state));
+        log("Game saved.");
+      }
+
+      function loadGame() {
+        const raw = localStorage.getItem(SAVE_KEY);
+        if (!raw) return log("No save found.");
+        try {
+          const parsed = JSON.parse(raw);
+          Object.assign(state, parsed);
+          normalizeState();
+          updatePlayerPosition();
+          refreshZone();
+          applyWorldVisuals();
+          if (state.campaign?.activeMainQuest?.targetPOI) {
+            const poi = POINTS_OF_INTEREST.find((p) => p.id === state.campaign.activeMainQuest.targetPOI);
+            setActiveObjectiveMarker(poi, state.campaign.activeMainQuest.title);
+          }
+          if (el.buildId) el.buildId.textContent = `Build: ${GAME_VERSION}`;
+          if (el.footerVersion) el.footerVersion.textContent = `Build ${GAME_VERSION}`;
+          renderAll();
+          log("Game loaded.");
+        } catch {
+          log("Save corrupted.");
+        }
+      }
+
+      function log(msg) {
+        const div = document.createElement("div");
+        div.className = "log-entry";
+        div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        el.log.prepend(div);
+      }
+
+      function normalizeState() {
+        if (!state.campaign) {
+          state.campaign = {
+            activeMainQuest: null,
+            sideQuests: [],
+            stageByBorough: { manhattan: 0, bronx: 0, brooklyn: 0, queens: 0, staten: 0 },
+            tamed: { manhattan: false, bronx: false, brooklyn: false, queens: false, staten: false },
+            finalBossUnlocked: false,
+            finalBossDefeated: false,
+            boroughBossDefeated: { manhattan: false, bronx: false, brooklyn: false, queens: false, staten: false },
+          };
+        }
+        if (!state.reclaimedPOIs) state.reclaimedPOIs = {};
+        if (!state.campaign.stageByBorough) state.campaign.stageByBorough = { manhattan: 0, bronx: 0, brooklyn: 0, queens: 0, staten: 0 };
+        if (!state.campaign.tamed) state.campaign.tamed = { manhattan: false, bronx: false, brooklyn: false, queens: false, staten: false };
+        if (!state.campaign.boroughBossDefeated) state.campaign.boroughBossDefeated = { manhattan: false, bronx: false, brooklyn: false, queens: false, staten: false };
+        if (!state.player.equipment) state.player.equipment = {};
+        for (const slot of EQUIPMENT_SLOTS) {
+          if (!(slot in state.player.equipment)) state.player.equipment[slot] = null;
+        }
+        if (!Array.isArray(state.campaign.sideQuests) || state.campaign.sideQuests.length === 0) generateBoroughSideQuests();
+      }
+
+      function randomRange(min, max) {
+        return Math.floor(Math.random() * (max - min + 1)) + min;
+      }
+
+      function distance([lat1, lng1], p2) {
+        const lat2 = p2.lat ?? p2[0];
+        const lng2 = p2.lng ?? p2[1];
+        return Math.hypot(lat2 - lat1, lng2 - lng1);
+      }
+
+      init();
+    </script>
+  </body>
+</html>
