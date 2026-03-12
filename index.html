@@ -169,7 +169,39 @@
         main { grid-template-columns: 1fr; height: auto; padding-bottom: 130px; }
         #map { height: 50vh; }
       }
-      @media (max-width: 900px), (pointer: coarse) { .mobile-controls { display: flex; } }
+            .mobile-compact-stats {
+        display: none;
+        position: fixed;
+        top: 62px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 1300;
+        width: min(96vw, 620px);
+        background: rgba(8, 12, 20, 0.9);
+        border: 1px solid #334155;
+        border-radius: 10px;
+        padding: 0.35rem 0.5rem;
+        font-size: 0.82rem;
+      }
+      .mobile-quick-menu {
+        display: none;
+        position: fixed;
+        right: 10px;
+        bottom: 138px;
+        z-index: 1400;
+        gap: 6px;
+        flex-direction: column;
+      }
+      .mobile-panel-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: .5rem; }
+      #mobile-panel-content { max-height: 62vh; overflow-y: auto; }
+      @media (max-width: 900px), (pointer: coarse) {
+        .mobile-controls { display: flex; }
+        .mobile-quick-menu { display: flex; }
+        .mobile-compact-stats { display: block; }
+        main { grid-template-columns: 1fr; height: auto; padding-top: 72px; padding-bottom: 165px; }
+        main > section.panel { display: none; }
+        #map { height: calc(100vh - 255px); min-height: 390px; }
+      }
     </style>
   </head>
   <body class="time-day">
@@ -258,6 +290,32 @@
         <div id="log"></div>
       </section>
     </main>
+
+
+    <div id="mobile-compact-stats" class="mobile-compact-stats"></div>
+
+    <div class="mobile-quick-menu">
+      <button id="mobile-open-world">World</button>
+      <button id="mobile-open-inventory">Inventory</button>
+      <button id="mobile-open-quests">Quests</button>
+      <button id="mobile-open-log">Log</button>
+    </div>
+
+    <div id="mobile-panel-modal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-content">
+        <h2>Field Console</h2>
+        <div class="mobile-panel-tabs">
+          <button id="mobile-tab-world">World</button>
+          <button id="mobile-tab-inventory">Inventory</button>
+          <button id="mobile-tab-quests">Quests</button>
+          <button id="mobile-tab-log">Log</button>
+        </div>
+        <div id="mobile-panel-content"></div>
+        <div class="button-row">
+          <button id="mobile-panel-close">Close</button>
+        </div>
+      </div>
+    </div>
 
     <div class="mobile-controls">
       <div class="dpad">
@@ -530,6 +588,7 @@
           boroughBossDefeated: { manhattan: false, bronx: false, brooklyn: false, queens: false, staten: false },
         },
         reclaimedPOIs: {},
+        mobilePanelTab: "world",
       };
 
       let map, playerMarker, merchantMarker, moveInterval;
@@ -594,6 +653,18 @@
         touchQuest: document.getElementById("touch-quest"),
         buildId: document.getElementById("build-id"),
         footerVersion: document.getElementById("footer-version"),
+        mobileCompactStats: document.getElementById("mobile-compact-stats"),
+        mobilePanelModal: document.getElementById("mobile-panel-modal"),
+        mobilePanelContent: document.getElementById("mobile-panel-content"),
+        mobileOpenWorld: document.getElementById("mobile-open-world"),
+        mobileOpenInventory: document.getElementById("mobile-open-inventory"),
+        mobileOpenQuests: document.getElementById("mobile-open-quests"),
+        mobileOpenLog: document.getElementById("mobile-open-log"),
+        mobileTabWorld: document.getElementById("mobile-tab-world"),
+        mobileTabInventory: document.getElementById("mobile-tab-inventory"),
+        mobileTabQuests: document.getElementById("mobile-tab-quests"),
+        mobileTabLog: document.getElementById("mobile-tab-log"),
+        mobilePanelClose: document.getElementById("mobile-panel-close"),
       };
 
       function init() {
@@ -669,6 +740,16 @@
         el.touchScavenge.onclick = scavengeNearestBuilding;
         el.touchMerchant.onclick = tryMerchantInteract;
         el.touchQuest.onclick = tryQuestGiverInteract;
+
+        el.mobileOpenWorld.onclick = () => openMobilePanel("world");
+        el.mobileOpenInventory.onclick = () => openMobilePanel("inventory");
+        el.mobileOpenQuests.onclick = () => openMobilePanel("quests");
+        el.mobileOpenLog.onclick = () => openMobilePanel("log");
+        el.mobileTabWorld.onclick = () => switchMobilePanelTab("world");
+        el.mobileTabInventory.onclick = () => switchMobilePanelTab("inventory");
+        el.mobileTabQuests.onclick = () => switchMobilePanelTab("quests");
+        el.mobileTabLog.onclick = () => switchMobilePanelTab("log");
+        el.mobilePanelClose.onclick = closeMobilePanel;
       }
 
       function mapTileProviders() {
@@ -1288,6 +1369,8 @@
         el.combatModal.classList.remove("hidden");
         log(`Encounter: ${state.enemy.name}`);
         renderCombatStatus();
+        renderMobileCompactStats();
+        renderMobilePanel();
       }
 
       function startBoroughBossBattle(borough) {
@@ -1318,6 +1401,8 @@
         el.combatModal.classList.remove("hidden");
         log(`Borough boss battle begins: ${cfg.name}.`);
         renderCombatStatus();
+        renderMobileCompactStats();
+        renderMobilePanel();
       }
 
       function startFinalBossBattle() {
@@ -1348,6 +1433,8 @@
         el.combatModal.classList.remove("hidden");
         log("Final battle begins: Overlord Malachai descends on the city.");
         renderCombatStatus();
+        renderMobileCompactStats();
+        renderMobilePanel();
       }
 
       function rollEnemyIntent() {
@@ -1718,6 +1805,90 @@
         renderAll();
       }
 
+      function isMobileLayout() {
+        return window.matchMedia("(max-width: 900px), (pointer: coarse)").matches;
+      }
+
+      function openMobilePanel(tab = "world") {
+        state.mobilePanelTab = tab;
+        renderMobilePanel();
+        el.mobilePanelModal.classList.remove("hidden");
+      }
+
+      function closeMobilePanel() {
+        el.mobilePanelModal.classList.add("hidden");
+      }
+
+      function switchMobilePanelTab(tab) {
+        state.mobilePanelTab = tab;
+        renderMobilePanel();
+      }
+
+      function renderMobileCompactStats() {
+        if (!el.mobileCompactStats) return;
+        if (!isMobileLayout()) {
+          el.mobileCompactStats.textContent = "";
+          return;
+        }
+        el.mobileCompactStats.innerHTML = `<strong>Lv ${state.player.level}</strong> | HP ${state.player.hp}/${totalMaxHp()} | MP ${state.player.mp}/${state.player.maxMp} | ${state.zone.name} | Gold ${state.player.gold}`;
+      }
+
+      function renderMobilePanel() {
+        if (!el.mobilePanelContent) return;
+        const tab = state.mobilePanelTab || "world";
+        if (tab === "world") {
+          el.mobilePanelContent.innerHTML = `
+            <p><strong>Objective:</strong> ${el.mainObjective.textContent}</p>
+            <p><strong>Zone:</strong> ${state.zone.name} (Threat x${state.zone.crimeIndex.toFixed(2)})</p>
+            <p><strong>Time/Weather:</strong> ${state.world.time.toUpperCase()} / ${state.world.weather.toUpperCase()}</p>
+            <div class="button-row">
+              <button onclick="window.__rpgTryQuestGiver()">Talk to Quest Giver</button>
+              <button onclick="window.__rpgReclaimPoi()">Reclaim Landmark</button>
+              <button onclick="window.__rpgScavenge()">Scavenge</button>
+              <button onclick="window.__rpgSave()">Save</button>
+              <button onclick="window.__rpgLoad()">Load</button>
+            </div>
+            <h3>Borough Progress</h3>
+            <ul>${el.boroughProgress.innerHTML}</ul>
+            <h3>Nearby Landmarks</h3>
+            <ul>${el.poiList.innerHTML}</ul>
+          `;
+          return;
+        }
+        if (tab === "inventory") {
+          const list = uniqueInventory().map(({id,count}) => {
+            const item = ITEMS[id];
+            const rarity = item.rarity ? ` [${item.rarity}]` : "";
+            const equip = item.type === "equipment" ? `<button onclick="window.__rpgEquip('${id}')">Equip</button>` : "";
+            const use = item.type === "consumable" ? `<button onclick="window.__rpgUse('${id}')">Use</button>` : "";
+            return `<li>${item.name}${rarity} x${count} ${equip} ${use}</li>`;
+          }).join("");
+          el.mobilePanelContent.innerHTML = `
+            <h3>Equipment</h3>
+            ${el.equipment.innerHTML}
+            <h3>Inventory</h3>
+            <ul>${list || "<li>Empty</li>"}</ul>
+            <h3>Skills</h3>
+            <p>${el.skillPoints.textContent}</p>
+            <ul>${el.skillList.innerHTML}</ul>
+          `;
+          return;
+        }
+        if (tab === "quests") {
+          el.mobilePanelContent.innerHTML = `
+            <h3>Main Objective</h3>
+            <p>${el.mainObjective.textContent}</p>
+            <h3>Contract Board</h3>
+            <ul>${el.questList.innerHTML}</ul>
+            <div class="button-row"><button onclick="window.__rpgReroll()">Reroll Contracts (50g)</button></div>
+            <h3>Factions</h3>
+            <ul>${el.factionList.innerHTML}</ul>
+          `;
+          return;
+        }
+        el.mobilePanelContent.innerHTML = `<h3>Log</h3><div class="world-panel">${el.log.innerHTML || "No entries yet."}</div>`;
+      }
+
       function renderAll() {
         renderPlayer();
         renderStatusRows();
@@ -1729,6 +1900,8 @@
         renderCampaignPanel();
         renderFactions();
         renderCombatStatus();
+        renderMobileCompactStats();
+        renderMobilePanel();
       }
 
       function renderPlayer() {
@@ -2049,6 +2222,15 @@
         const lng2 = p2.lng ?? p2[1];
         return Math.hypot(lat2 - lat1, lng2 - lng1);
       }
+
+      window.__rpgUse = useConsumable;
+      window.__rpgEquip = equipItem;
+      window.__rpgScavenge = scavengeNearestBuilding;
+      window.__rpgTryQuestGiver = tryQuestGiverInteract;
+      window.__rpgReclaimPoi = reclaimNearestPOI;
+      window.__rpgSave = saveGame;
+      window.__rpgLoad = loadGame;
+      window.__rpgReroll = () => el.rerollQuestsBtn.click();
 
       init();
     </script>
