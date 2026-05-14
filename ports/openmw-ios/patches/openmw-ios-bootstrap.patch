@@ -1,0 +1,121 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,4 +1,17 @@
+ cmake_minimum_required(VERSION 3.16.0)
++
++option(OPENMW_IOS_PORT "Build the community iOS sideload target" OFF)
++
++if(OPENMW_IOS_PORT)
++    set(BUILD_LAUNCHER OFF CACHE BOOL "iOS port is engine-only" FORCE)
++    set(BUILD_WIZARD OFF CACHE BOOL "iOS port is engine-only" FORCE)
++    set(BUILD_OPENCS OFF CACHE BOOL "iOS port is engine-only" FORCE)
++    set(BUILD_MWINIIMPORTER OFF CACHE BOOL "iOS port is engine-only" FORCE)
++    set(BUILD_ESSIMPORTER OFF CACHE BOOL "iOS port is engine-only" FORCE)
++    set(BUILD_BSATOOL OFF CACHE BOOL "iOS port is engine-only" FORCE)
++    set(BUILD_ESMTOOL OFF CACHE BOOL "iOS port is engine-only" FORCE)
++    set(BUILD_NIFTEST OFF CACHE BOOL "iOS port is engine-only" FORCE)
++endif()
+ 
+ # set the timestamps of extracted contents to the time of extraction
+ # remove if cmake version is >= 3.24
+diff --git a/apps/openmw/CMakeLists.txt b/apps/openmw/CMakeLists.txt
+--- a/apps/openmw/CMakeLists.txt
++++ b/apps/openmw/CMakeLists.txt
+@@ -28,5 +28,17 @@ if(BUILD_OPENMW)
+     if (ANDROID)
+         add_library(openmw SHARED main.cpp androidmain.cpp )
++    elseif(IOS AND OPENMW_IOS_PORT)
++        openmw_add_executable(openmw MACOSX_BUNDLE ${APPLE_BUNDLE_RESOURCES} main.cpp)
++        set_target_properties(openmw PROPERTIES
++            MACOSX_BUNDLE TRUE
++            MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/files/ios/Info.plist"
++            XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
++            XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS "iphoneos"
++            XCODE_ATTRIBUTE_ENABLE_BITCODE "NO"
++            XCODE_ATTRIBUTE_INFOPLIST_KEY_UIFileSharingEnabled "YES"
++            XCODE_ATTRIBUTE_INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace "YES")
++        target_compile_definitions(openmw PRIVATE OPENMW_IOS_PORT=1)
++        target_link_libraries(openmw SDL2::SDL2main)
+     else()
+         openmw_add_executable(openmw ${APPLE_BUNDLE_RESOURCES} ${OPENMW_RESOURCES} main.cpp )
+     endif()
+@@ -86,6 +99,17 @@ if(APPLE AND BUILD_OPENMW)
+     find_library(COCOA_FRAMEWORK Cocoa)
+     find_library(IOKIT_FRAMEWORK IOKit)
+     target_link_libraries(openmw ${COCOA_FRAMEWORK} ${IOKIT_FRAMEWORK})
++    if(IOS AND OPENMW_IOS_PORT)
++        find_library(UIKIT_FRAMEWORK UIKit REQUIRED)
++        find_library(OPENGLES_FRAMEWORK OpenGLES REQUIRED)
++        find_library(AVFOUNDATION_FRAMEWORK AVFoundation REQUIRED)
++        find_library(AUDIO_TOOLBOX_FRAMEWORK AudioToolbox REQUIRED)
++        find_library(CORE_MOTION_FRAMEWORK CoreMotion REQUIRED)
++        find_library(GAME_CONTROLLER_FRAMEWORK GameController REQUIRED)
++        target_link_libraries(openmw ${UIKIT_FRAMEWORK} ${OPENGLES_FRAMEWORK}
++            ${AVFOUNDATION_FRAMEWORK} ${AUDIO_TOOLBOX_FRAMEWORK}
++            ${CORE_MOTION_FRAMEWORK} ${GAME_CONTROLLER_FRAMEWORK})
++    endif()
+     if (FFmpeg_FOUND)
+         target_link_options(openmw PRIVATE "LINKER:SHELL:-framework CoreVideo" "LINKER:SHELL:-framework CoreMedia" "LINKER:SHELL:-framework VideoToolbox" "LINKER:SHELL:-framework AudioToolbox" "LINKER:SHELL:-framework VideoDecodeAcceleration")
+     endif()
+diff --git a/apps/openmw/main.cpp b/apps/openmw/main.cpp
+--- a/apps/openmw/main.cpp
++++ b/apps/openmw/main.cpp
+@@ -390,7 +390,7 @@ int runApplication(int argc, char* argv[])
+     return 0;
+ }
+ 
+-#ifdef ANDROID
++#if defined(ANDROID) || defined(OPENMW_IOS_PORT)
+ extern "C" int SDL_main(int argc, char** argv)
+ #else
+ int main(int argc, char** argv)
+diff --git a/files/ios/Info.plist b/files/ios/Info.plist
+new file mode 100644
+--- /dev/null
++++ b/files/ios/Info.plist
+@@ -0,0 +1,44 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
++<plist version="1.0">
++<dict>
++  <key>CFBundleDevelopmentRegion</key>
++  <string>$(DEVELOPMENT_LANGUAGE)</string>
++  <key>CFBundleDisplayName</key>
++  <string>OpenMW</string>
++  <key>CFBundleExecutable</key>
++  <string>$(EXECUTABLE_NAME)</string>
++  <key>CFBundleIdentifier</key>
++  <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
++  <key>CFBundleInfoDictionaryVersion</key>
++  <string>6.0</string>
++  <key>CFBundleName</key>
++  <string>$(PRODUCT_NAME)</string>
++  <key>CFBundlePackageType</key>
++  <string>APPL</string>
++  <key>CFBundleShortVersionString</key>
++  <string>0.1</string>
++  <key>CFBundleVersion</key>
++  <string>1</string>
++  <key>LSRequiresIPhoneOS</key>
++  <true/>
++  <key>UIFileSharingEnabled</key>
++  <true/>
++  <key>LSSupportsOpeningDocumentsInPlace</key>
++  <true/>
++  <key>UISupportedInterfaceOrientations</key>
++  <array>
++    <string>UIInterfaceOrientationLandscapeLeft</string>
++    <string>UIInterfaceOrientationLandscapeRight</string>
++  </array>
++  <key>UISupportedInterfaceOrientations~ipad</key>
++  <array>
++    <string>UIInterfaceOrientationLandscapeLeft</string>
++    <string>UIInterfaceOrientationLandscapeRight</string>
++  </array>
++  <key>UIApplicationSupportsIndirectInputEvents</key>
++  <true/>
++  <key>UIRequiresFullScreen</key>
++  <true/>
++</dict>
++</plist>
