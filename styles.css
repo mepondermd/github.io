@@ -1,0 +1,39 @@
+:root {
+  --panel: #1a202c;
+  --panel-alt: #222b3b;
+  --text: #dbe7ff;
+  --accent: #83e0a3;
+  --danger: #ff7c7c;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: Inter, system-ui, sans-serif;
+  color: var(--text);
+  background: linear-gradient(180deg, #0a0c11, #111827);
+}
+header, footer { text-align: center; padding: 0.6rem; border-top: 1px solid #2d3748; border-bottom: 1px solid #2d3748; }
+main { display: grid; grid-template-columns: 320px 1fr 290px; gap: 0.75rem; padding: 0.75rem; height: calc(100vh - 150px); }
+.panel { background: var(--panel); border: 1px solid #2a3347; border-radius: 8px; padding: 0.75rem; overflow: auto; }
+#map { height: 100%; width: 100%; border-radius: 8px; border: 1px solid #2a3347; }
+.map-wrap { position: relative; }
+.overlay-help { position: absolute; top: 10px; left: 10px; z-index: 500; background: rgba(10,13,18,.86); border: 1px solid #354056; padding: 0.5rem; border-radius: 6px; font-size: .85rem; }
+#log { height: calc(100% - 48px); overflow-y: auto; border: 1px solid #2a3347; background: var(--panel-alt); padding: 0.5rem; border-radius: 6px; }
+.log-entry { margin-bottom: .35rem; border-bottom: 1px solid #2d3748; padding-bottom: .25rem; }
+.button-row { display: flex; gap: .4rem; margin-top: .6rem; flex-wrap: wrap; }
+button { background: #2f3c56; border: 1px solid #4a5a7c; color: var(--text); border-radius: 6px; padding: .35rem .5rem; cursor: pointer; }
+button:hover { filter: brightness(1.12); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+ul { margin: 0; padding-left: 1.1rem; }
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: grid; place-items: center; z-index: 1200; }
+.modal.hidden { display: none; }
+.modal-content { width: min(700px, 90vw); max-height: 82vh; overflow: auto; background: var(--panel); border: 1px solid #3b4a66; border-radius: 8px; padding: 1rem; }
+.stat-good { color: var(--accent); }
+.stat-bad { color: var(--danger); }
+.skill-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem; }
+.skill-locked { opacity: .7; }
+@media (max-width: 1100px) {
+  main { grid-template-columns: 1fr; height: auto; }
+  #map { height: 52vh; }
+}
