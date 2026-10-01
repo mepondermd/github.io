@@ -1114,7 +1114,7 @@
         state.player.gold += 90;
         adjustFaction("survivors", 4);
         state.campaign.stageByBorough[q.borough] += 1;
-        if (state.campaign.stageByBorough[q.borough] >= 3) {
+        if (state.campaign.stageByBorough[q.borough] >= 3 && state.campaign.boroughBossDefeated?.[q.borough]) {
           state.campaign.tamed[q.borough] = true;
           log(`${BOROUGH_LABELS[q.borough]} has been tamed.`);
         }
@@ -1124,7 +1124,7 @@
       }
 
       function checkFinalBossUnlock() {
-        const all = BOROUGH_ORDER.every((b) => state.campaign.tamed[b]);
+        const all = BOROUGH_ORDER.every((b) => state.campaign.tamed[b] && state.campaign.boroughBossDefeated?.[b]);
         if (all && !state.campaign.finalBossUnlocked) {
           state.campaign.finalBossUnlocked = true;
           log("All five boroughs are tamed. The Overlord has surfaced.");
@@ -1289,18 +1289,20 @@
         } else if (d.stage === 2) {
           el.dungeonText.textContent = `A guardian emerges in ${d.building.name}. Win to proceed.`;
           addDungeonBtn("Fight Guardian", () => {
+            if (state.inCombat || state.dungeon !== d || d.stage !== 2) return;
+            el.dungeonModal.classList.add("hidden");
             startCombat(true);
-            d.stage = 3;
-            renderDungeon();
           });
           addDungeonBtn("Retreat", () => {
+            if (state.inCombat || state.dungeon !== d || d.stage !== 2) return;
             state.dungeon = null;
             el.dungeonModal.classList.add("hidden");
             log("You retreat from the dungeon.");
           });
-        } else {
+        } else if (d.stage === 3) {
           el.dungeonText.textContent = `Core chamber looted. Claim relic and leave.`;
           addDungeonBtn("Claim Reward", () => {
+            if (state.inCombat || state.dungeon !== d || d.stage !== 3) return;
             const reward = ["relicBlade", "mysticCloak", "emberSigil"][Math.floor(Math.random() * 3)];
             state.player.inventory.push(reward);
             state.player.exp += 28;
@@ -1537,7 +1539,6 @@
       }
 
       function afterPlayerAction() {
-        applyStatusesAtTurnStart(state.enemy, state.enemy.name);
         if (state.enemy.hp <= 0) return onEnemyDefeated();
         enemyTurn();
         renderAll();
@@ -1648,8 +1649,11 @@
 
       function endCombat(victory) {
         state.inCombat = false;
-        if (state.enemy?.dungeonFight && victory && state.dungeon) {
-          log("Dungeon guardian defeated.");
+        if (state.enemy?.dungeonFight && state.dungeon) {
+          state.dungeon.stage = victory ? 3 : 2;
+          if (victory) log("Dungeon guardian defeated.");
+          el.dungeonModal.classList.remove("hidden");
+          renderDungeon();
         }
         state.enemy = null;
         state.player.guarded = false;
@@ -2206,6 +2210,12 @@
         if (!state.campaign.stageByBorough) state.campaign.stageByBorough = { manhattan: 0, bronx: 0, brooklyn: 0, queens: 0, staten: 0 };
         if (!state.campaign.tamed) state.campaign.tamed = { manhattan: false, bronx: false, brooklyn: false, queens: false, staten: false };
         if (!state.campaign.boroughBossDefeated) state.campaign.boroughBossDefeated = { manhattan: false, bronx: false, brooklyn: false, queens: false, staten: false };
+        // Boss victories are authoritative; older saves may have tamed boroughs
+        // and unlocked the Overlord merely by finishing the normal quest chain.
+        for (const borough of BOROUGH_ORDER) {
+          state.campaign.tamed[borough] = !!state.campaign.boroughBossDefeated[borough];
+        }
+        state.campaign.finalBossUnlocked = BOROUGH_ORDER.every((borough) => state.campaign.tamed[borough]);
         if (!state.player.equipment) state.player.equipment = {};
         for (const slot of EQUIPMENT_SLOTS) {
           if (!(slot in state.player.equipment)) state.player.equipment[slot] = null;
