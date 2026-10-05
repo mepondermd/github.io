@@ -43,16 +43,32 @@ def build_command(interpreter: str, args: argparse.Namespace) -> list[str]:
 
 
 def run_story(command: list[str]) -> int:
+    stdin_fd = sys.stdin.fileno()
+    if not sys.stdin.isatty():
+        print("Interactive terminal required: stdin is not a TTY.", file=sys.stderr)
+        return 4
+
+    # Validate terminal access before forking so a failure cannot leave a child
+    # interpreter running in the background.
+    try:
+        old_attrs = termios.tcgetattr(stdin_fd)
+    except (OSError, termios.error) as exc:
+        print(f"Unable to configure terminal: {exc}", file=sys.stderr)
+        return 4
+
     pid, fd = pty.fork()
     if pid == 0:
         os.execvp(command[0], command)
 
-    old_attrs = termios.tcgetattr(sys.stdin.fileno())
-    tty.setraw(sys.stdin.fileno())
+    tty.setraw(stdin_fd)
+    stdin_open = True
 
     try:
         while True:
-            readable, _, _ = select.select([fd, sys.stdin], [], [])
+            watched = [fd]
+            if stdin_open:
+                watched.append(sys.stdin)
+            readable, _, _ = select.select(watched, [], [])
             if fd in readable:
                 try:
                     data = os.read(fd, 4096)
@@ -63,16 +79,23 @@ def run_story(command: list[str]) -> int:
                 sys.stdout.buffer.write(data)
                 sys.stdout.flush()
 
-            if sys.stdin in readable:
-                chunk = os.read(sys.stdin.fileno(), 1024)
+            if stdin_open and sys.stdin in readable:
+                chunk = os.read(stdin_fd, 1024)
                 if not chunk:
+                    # A PTY cannot be half-closed. VEOF is the terminal
+                    # equivalent; stop watching stdin to avoid a select spin.
+                    stdin_open = False
+                    try:
+                        os.write(fd, b"\x04")
+                    except OSError:
+                        break
                     continue
                 if chunk == b"\x03":  # Ctrl-C
                     os.kill(pid, signal.SIGINT)
                     continue
                 os.write(fd, chunk)
     finally:
-        termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, old_attrs)
+        termios.tcsetattr(stdin_fd, termios.TCSADRAIN, old_attrs)
 
     _, status = os.waitpid(pid, 0)
     return os.waitstatus_to_exitcode(status)
